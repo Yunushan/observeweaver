@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+{% if groups.get('alertmanager', []) %}
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+{% for host in groups.get('alertmanager', []) %}
+{% set address = hostvars[host].ansible_host %}
+            - "{{ '[' ~ address ~ ']' if ':' in address else address }}:{{ observeweaver.network.ports.alertmanager }}"
+{% endfor %}
+{% endif %}
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets:
+{% for host in groups.get('prometheus', []) %}
+{% set address = hostvars[host].ansible_host %}
+          - "{{ '[' ~ address ~ ']' if ':' in address else address }}:{{ observeweaver.network.ports.prometheus }}"
+{% endfor %}
+{% if groups.get('opentelemetry', []) %}
+  - job_name: otel-collector-internal
+    static_configs:
+      - targets:
+{% for host in groups.get('opentelemetry', []) %}
+{% set address = hostvars[host].ansible_host %}
+          - "{{ '[' ~ address ~ ']' if ':' in address else address }}:{{ observeweaver.network.ports.otelMetrics }}"
+{% endfor %}
+  - job_name: otel-exported-metrics
+    static_configs:
+      - targets:
+{% for host in groups.get('opentelemetry', []) %}
+{% set address = hostvars[host].ansible_host %}
+          - "{{ '[' ~ address ~ ']' if ':' in address else address }}:{{ observeweaver.network.ports.otelPrometheus }}"
+{% endfor %}
+{% endif %}

@@ -1,0 +1,38 @@
+# Tested application pinset. Update compatibility.yml and run the complete
+# integration matrix before changing a Graylog search-backend version.
+updated: "2026-07-30"
+
+applications:
+  prometheus: "3.13.1"
+  alertmanager: "0.33.1"
+  grafana: "13.1.1"
+  opentelemetryCollectorContrib: "0.157.0"
+  graylog: "7.1.6"
+  opensearchGraylogBackend: "2.19.5"
+  mongodb: "8.0.28"
+  postgresql: "17"
+
+profiles:
+  opensearchGeneralPurpose:
+    version: "3.7.0"
+    warning: Do not connect this profile to Graylog 7.1.
+
+helmCharts:
+  kubePrometheusStack:
+    version: "87.21.0"
+    sha256: 05eae98df0ff6c21877a26a4400780e4bbff248bc3b88694ef8d08b273ed6815
+  opentelemetryCollector:
+    version: "0.165.0"
+    appVersion: "0.156.0"
+    sha256: b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5
+  graylog:
+    version: "1.0.0"
+    maturity: beta
+    sha256: 06e18864ca7a81809ad23cd081a73b5306ea9f80f78ea3cc71e2abeb64dcf1a4
+  mongodbKubernetesOperator:
+    version: "1.6.1"
+    sha256: 4d9d167c5c7f41d559a948f18a24cee64c96530db098b07e39f59825cc12b6fd
+  opensearchGraylogBackend:
+    version: "2.37.0"
+    appVersion: "2.19.5"
+    sha256: 046cc4ce31b50d5fa5dec857782f328820265830353459d79a68a4c714662200

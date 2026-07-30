@@ -1,0 +1,95 @@
+---
+- name: Set Prometheus artifact facts
+  ansible.builtin.set_fact:
+    observeweaver_prometheus_version: "{{ observeweaver.components.prometheus.version }}"
+    observeweaver_prometheus_arch: "{{ observeweaver_download_arch[ansible_architecture] }}"
+
+- name: Create Prometheus service account
+  ansible.builtin.user:
+    name: prometheus
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ observeweaver_data_root }}/prometheus"
+    create_home: false
+
+- name: Download Prometheus
+  ansible.builtin.get_url:
+    url: >-
+      {{
+        'https://github.com/prometheus/prometheus/releases/download/v' ~
+        observeweaver_prometheus_version ~ '/prometheus-' ~
+        observeweaver_prometheus_version ~ '.linux-' ~
+        observeweaver_prometheus_arch ~ '.tar.gz'
+      }}
+    dest: >-
+      {{ observeweaver_cache_root }}/prometheus-{{
+      observeweaver_prometheus_version }}.tar.gz
+    checksum: "sha256:{{ observeweaver_prometheus_linux_amd64_sha256 }}"
+    mode: "0644"
+
+- name: Extract Prometheus
+  ansible.builtin.unarchive:
+    src: >-
+      {{ observeweaver_cache_root }}/prometheus-{{
+      observeweaver_prometheus_version }}.tar.gz
+    dest: "{{ observeweaver_install_root }}"
+    remote_src: true
+    creates: >-
+      {{ observeweaver_install_root }}/prometheus-{{
+      observeweaver_prometheus_version }}.linux-{{
+      observeweaver_prometheus_arch }}/prometheus
+
+- name: Link Prometheus binaries
+  ansible.builtin.file:
+    src: >-
+      {{ observeweaver_install_root }}/prometheus-{{
+      observeweaver_prometheus_version }}.linux-{{
+      observeweaver_prometheus_arch }}/{{ item }}
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - prometheus
+    - promtool
+  notify: Restart prometheus
+
+- name: Create Prometheus directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: prometheus
+    group: prometheus
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ observeweaver_config_root }}/prometheus"
+      mode: "0750"
+    - path: "{{ observeweaver_data_root }}/prometheus"
+      mode: "0750"
+
+- name: Configure Prometheus
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ observeweaver_config_root }}/prometheus/prometheus.yml"
+    owner: prometheus
+    group: prometheus
+    mode: "0640"
+    validate: "/usr/local/bin/promtool check config %s"
+  notify: Restart prometheus
+
+- name: Install Prometheus systemd unit
+  ansible.builtin.template:
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart prometheus
+
+- name: Enable Prometheus
+  ansible.builtin.systemd_service:
+    name: prometheus
+    enabled: true
+    state: started
+    daemon_reload: true

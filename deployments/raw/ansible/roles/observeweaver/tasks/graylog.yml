@@ -1,0 +1,134 @@
+---
+- name: Set Graylog repository package URL
+  ansible.builtin.set_fact:
+    observeweaver_graylog_repository_url: >-
+      {{
+        'https://packages.graylog2.org/repo/packages/graylog-' ~
+        observeweaver_graylog_repository_major ~ '-repository_latest.deb'
+        if ansible_os_family == 'Debian'
+        else
+        'https://packages.graylog2.org/repo/packages/graylog-' ~
+        observeweaver_graylog_repository_major ~ '-repository_latest.rpm'
+      }}
+
+- name: Install Graylog repository package on Debian family
+  ansible.builtin.apt:
+    deb: "{{ observeweaver_graylog_repository_url }}"
+    state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Refresh Debian package metadata after adding Graylog
+  ansible.builtin.apt:
+    update_cache: true
+  when: ansible_os_family == 'Debian'
+
+- name: Install Graylog repository package on Red Hat family
+  ansible.builtin.dnf:
+    name: "{{ observeweaver_graylog_repository_url }}"
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Install pinned Graylog server on Debian family
+  ansible.builtin.apt:
+    name: "graylog-server={{ observeweaver.components.graylog.version }}-1"
+    state: present
+    allow_downgrade: true
+  when: ansible_os_family == 'Debian'
+
+- name: Install pinned Graylog server on Red Hat family
+  ansible.builtin.dnf:
+    name: "graylog-server-{{ observeweaver.components.graylog.version }}-1"
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Create Graylog journal directory
+  ansible.builtin.file:
+    path: "{{ observeweaver_data_root }}/graylog-journal"
+    state: directory
+    owner: graylog
+    group: graylog
+    mode: "0750"
+
+- name: Read the OpenSearch certificate authority
+  ansible.builtin.slurp:
+    src: /etc/opensearch/observeweaver-root-ca.pem
+  delegate_to: "{{ groups['opensearch'] | first }}"
+  register: observeweaver_opensearch_ca
+  no_log: true
+
+- name: Install the OpenSearch certificate authority for Graylog
+  ansible.builtin.copy:
+    dest: /etc/graylog/server/opensearch-root-ca.pem
+    owner: root
+    group: graylog
+    mode: "0640"
+    content: "{{ observeweaver_opensearch_ca.content | b64decode }}"
+  register: observeweaver_graylog_ca_file
+  no_log: true
+
+- name: Check the OpenSearch CA alias in the Graylog JVM
+  ansible.builtin.command:
+    argv:
+      - /usr/share/graylog-server/jvm/bin/keytool
+      - -list
+      - -alias
+      - observeweaver-opensearch
+      - -cacerts
+      - -storepass
+      - changeit
+  register: observeweaver_graylog_ca_alias
+  changed_when: false
+  failed_when: false
+
+- name: Remove the stale OpenSearch CA alias from the Graylog JVM
+  ansible.builtin.command:
+    argv:
+      - /usr/share/graylog-server/jvm/bin/keytool
+      - -delete
+      - -alias
+      - observeweaver-opensearch
+      - -cacerts
+      - -storepass
+      - changeit
+  when:
+    - observeweaver_graylog_ca_file.changed
+    - observeweaver_graylog_ca_alias.rc == 0
+  changed_when: true
+
+- name: Trust the current OpenSearch certificate authority in the Graylog JVM
+  ansible.builtin.command:
+    argv:
+      - /usr/share/graylog-server/jvm/bin/keytool
+      - -importcert
+      - -noprompt
+      - -trustcacerts
+      - -alias
+      - observeweaver-opensearch
+      - -file
+      - /etc/graylog/server/opensearch-root-ca.pem
+      - -cacerts
+      - -storepass
+      - changeit
+  register: observeweaver_graylog_ca_import
+  when: >-
+    observeweaver_graylog_ca_file.changed or
+    observeweaver_graylog_ca_alias.rc != 0
+  changed_when: true
+  notify: Restart graylog
+
+- name: Configure Graylog server
+  ansible.builtin.template:
+    src: graylog-server.conf.j2
+    dest: /etc/graylog/server/server.conf
+    owner: root
+    group: graylog
+    mode: "0640"
+  no_log: true
+  notify: Restart graylog
+
+- name: Enable Graylog server
+  ansible.builtin.systemd_service:
+    name: graylog-server
+    enabled: true
+    state: started
+    daemon_reload: true

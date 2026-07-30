@@ -1,0 +1,319 @@
+---
+- name: Install OpenSearch repository key on Debian family
+  ansible.builtin.get_url:
+    url: https://artifacts.opensearch.org/publickeys/opensearch.pgp
+    dest: /usr/share/keyrings/opensearch.pgp
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_os_family == 'Debian'
+
+- name: Configure OpenSearch repository on Debian family
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/keyrings/opensearch.pgp]
+      https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/apt stable main
+    filename: opensearch-2.x
+    state: present
+    update_cache: true
+  when: ansible_os_family == 'Debian'
+
+- name: Configure OpenSearch repository on Red Hat family
+  ansible.builtin.yum_repository:
+    name: opensearch-2.x
+    description: OpenSearch 2.x
+    baseurl: https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/yum
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://artifacts.opensearch.org/publickeys/opensearch.pgp
+  when: ansible_os_family == 'RedHat'
+
+- name: Read OpenSearch bootstrap password
+  ansible.builtin.set_fact:
+    observeweaver_opensearch_admin_password: >-
+      {{ lookup('ansible.builtin.ini', 'OPENSEARCH_INITIAL_ADMIN_PASSWORD',
+      type='properties', file=observeweaver_secret_file) }}
+  no_log: true
+
+- name: Install pinned OpenSearch package
+  ansible.builtin.package:
+    name: >-
+      {{ 'opensearch=' ~ observeweaver.components.opensearch.version
+      if ansible_os_family == 'Debian'
+      else 'opensearch-' ~ observeweaver.components.opensearch.version }}
+    state: present
+  environment:
+    OPENSEARCH_INITIAL_ADMIN_PASSWORD: "{{ observeweaver_opensearch_admin_password }}"
+  no_log: true
+
+- name: Create OpenSearch data directory
+  ansible.builtin.file:
+    path: "{{ observeweaver_data_root }}/opensearch"
+    state: directory
+    owner: opensearch
+    group: opensearch
+    mode: "0750"
+
+- name: Create the private OpenSearch CA workspace
+  ansible.builtin.file:
+    path: /etc/opensearch/observeweaver-ca
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  delegate_to: "{{ groups['opensearch'] | first }}"
+
+- name: Generate the private OpenSearch CA key
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - genpkey
+      - -algorithm
+      - RSA
+      - -pkeyopt
+      - rsa_keygen_bits:4096
+      - -out
+      - /etc/opensearch/observeweaver-ca/root-ca-key.pem
+    creates: /etc/opensearch/observeweaver-ca/root-ca-key.pem
+  delegate_to: "{{ groups['opensearch'] | first }}"
+  no_log: true
+
+- name: Generate the private OpenSearch CA certificate
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -new
+      - -x509
+      - -sha256
+      - -key
+      - /etc/opensearch/observeweaver-ca/root-ca-key.pem
+      - -subj
+      - /O=ObserveWeaver/OU=Security/CN=ObserveWeaver Root CA
+      - -days
+      - "3650"
+      - -addext
+      - "basicConstraints=critical,CA:TRUE,pathlen:0"
+      - -addext
+      - "keyUsage=critical,keyCertSign,cRLSign"
+      - -out
+      - /etc/opensearch/observeweaver-ca/root-ca.pem
+    creates: /etc/opensearch/observeweaver-ca/root-ca.pem
+  delegate_to: "{{ groups['opensearch'] | first }}"
+
+- name: Generate the OpenSearch node private key
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - genpkey
+      - -algorithm
+      - RSA
+      - -pkeyopt
+      - rsa_keygen_bits:2048
+      - -out
+      - /etc/opensearch/observeweaver-node-key.pem
+    creates: /etc/opensearch/observeweaver-node-key.pem
+  no_log: true
+
+- name: Protect the OpenSearch node private key
+  ansible.builtin.file:
+    path: /etc/opensearch/observeweaver-node-key.pem
+    state: file
+    owner: root
+    group: opensearch
+    mode: "0640"
+
+- name: Generate the OpenSearch node certificate request
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -new
+      - -sha256
+      - -key
+      - /etc/opensearch/observeweaver-node-key.pem
+      - -subj
+      - "/O=ObserveWeaver/OU=Nodes/CN={{ inventory_hostname }}"
+      - -out
+      - /etc/opensearch/observeweaver-node.csr
+  changed_when: false
+
+- name: Configure OpenSearch node certificate extensions
+  ansible.builtin.copy:
+    dest: /etc/opensearch/observeweaver-node.ext
+    owner: root
+    group: opensearch
+    mode: "0640"
+    content: |
+      basicConstraints=critical,CA:FALSE
+      keyUsage=critical,digitalSignature,keyEncipherment
+      extendedKeyUsage=serverAuth,clientAuth
+      subjectAltName=DNS:{{ inventory_hostname }},DNS:localhost,IP:{{ hostvars[inventory_hostname].ansible_host }},IP:127.0.0.1
+  register: observeweaver_opensearch_node_extensions
+
+- name: Read the OpenSearch node certificate request
+  ansible.builtin.slurp:
+    src: /etc/opensearch/observeweaver-node.csr
+  register: observeweaver_opensearch_node_csr
+
+- name: Stage the OpenSearch node certificate request on the CA host
+  ansible.builtin.copy:
+    dest: >-
+      /etc/opensearch/observeweaver-ca/{{ inventory_hostname }}.csr
+    owner: root
+    group: root
+    mode: "0600"
+    content: "{{ observeweaver_opensearch_node_csr.content | b64decode }}"
+  register: observeweaver_opensearch_ca_csr
+  delegate_to: "{{ groups['opensearch'] | first }}"
+
+- name: Stage the OpenSearch node certificate extensions on the CA host
+  ansible.builtin.copy:
+    dest: >-
+      /etc/opensearch/observeweaver-ca/{{ inventory_hostname }}.ext
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      basicConstraints=critical,CA:FALSE
+      keyUsage=critical,digitalSignature,keyEncipherment
+      extendedKeyUsage=serverAuth,clientAuth
+      subjectAltName=DNS:{{ inventory_hostname }},DNS:localhost,IP:{{ hostvars[inventory_hostname].ansible_host }},IP:127.0.0.1
+  register: observeweaver_opensearch_ca_extensions
+  delegate_to: "{{ groups['opensearch'] | first }}"
+
+- name: Inspect the signed OpenSearch node certificate
+  ansible.builtin.stat:
+    path: >-
+      /etc/opensearch/observeweaver-ca/{{ inventory_hostname }}.pem
+  register: observeweaver_opensearch_signed_certificate
+  delegate_to: "{{ groups['opensearch'] | first }}"
+
+- name: Check the OpenSearch node certificate validity window
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - x509
+      - -checkend
+      - "2592000"
+      - -noout
+      - -in
+      - "/etc/opensearch/observeweaver-ca/{{ inventory_hostname }}.pem"
+  register: observeweaver_opensearch_certificate_validity
+  changed_when: false
+  failed_when: false
+  delegate_to: "{{ groups['opensearch'] | first }}"
+
+- name: Sign the OpenSearch node certificate
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - x509
+      - -req
+      - -sha256
+      - -in
+      - "/etc/opensearch/observeweaver-ca/{{ inventory_hostname }}.csr"
+      - -CA
+      - /etc/opensearch/observeweaver-ca/root-ca.pem
+      - -CAkey
+      - /etc/opensearch/observeweaver-ca/root-ca-key.pem
+      - -CAserial
+      - /etc/opensearch/observeweaver-ca/root-ca.srl
+      - -CAcreateserial
+      - -days
+      - "825"
+      - -extfile
+      - "/etc/opensearch/observeweaver-ca/{{ inventory_hostname }}.ext"
+      - -out
+      - "/etc/opensearch/observeweaver-ca/{{ inventory_hostname }}.pem"
+  changed_when: true
+  when: >-
+    observeweaver_opensearch_ca_csr.changed or
+    observeweaver_opensearch_ca_extensions.changed or
+    not observeweaver_opensearch_signed_certificate.stat.exists or
+    observeweaver_opensearch_certificate_validity.rc != 0
+  delegate_to: "{{ groups['opensearch'] | first }}"
+
+- name: Read the private OpenSearch CA certificate
+  ansible.builtin.slurp:
+    src: /etc/opensearch/observeweaver-ca/root-ca.pem
+  register: observeweaver_opensearch_ca_certificate
+  delegate_to: "{{ groups['opensearch'] | first }}"
+
+- name: Read the signed OpenSearch node certificate
+  ansible.builtin.slurp:
+    src: "/etc/opensearch/observeweaver-ca/{{ inventory_hostname }}.pem"
+  register: observeweaver_opensearch_node_certificate
+  delegate_to: "{{ groups['opensearch'] | first }}"
+
+- name: Install the private OpenSearch CA certificate
+  ansible.builtin.copy:
+    dest: /etc/opensearch/observeweaver-root-ca.pem
+    owner: root
+    group: opensearch
+    mode: "0644"
+    content: "{{ observeweaver_opensearch_ca_certificate.content | b64decode }}"
+  notify: Restart opensearch
+
+- name: Install the signed OpenSearch node certificate
+  ansible.builtin.copy:
+    dest: /etc/opensearch/observeweaver-node.pem
+    owner: root
+    group: opensearch
+    mode: "0644"
+    content: "{{ observeweaver_opensearch_node_certificate.content | b64decode }}"
+  notify: Restart opensearch
+
+- name: Configure OpenSearch
+  ansible.builtin.template:
+    src: opensearch.yml.j2
+    dest: /etc/opensearch/opensearch.yml
+    owner: root
+    group: opensearch
+    mode: "0640"
+  notify: Restart opensearch
+
+- name: Configure OpenSearch heap
+  ansible.builtin.copy:
+    dest: /etc/opensearch/jvm.options.d/observeweaver.options
+    owner: root
+    group: opensearch
+    mode: "0640"
+    content: |
+      {{ observeweaver.components.opensearch.javaOpts.split() | join('\n') }}
+  notify: Restart opensearch
+
+- name: Create OpenSearch systemd override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/opensearch.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Allow OpenSearch to lock its heap
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/opensearch.service.d/observeweaver.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Service]
+      LimitMEMLOCK=infinity
+  notify: Restart opensearch
+
+- name: Enable OpenSearch
+  ansible.builtin.systemd_service:
+    name: opensearch
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply pending OpenSearch configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for OpenSearch API
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[inventory_hostname].ansible_host }}"
+    port: "{{ observeweaver.network.ports.opensearch }}"
+    timeout: 180

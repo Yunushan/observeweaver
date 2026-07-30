@@ -1,0 +1,27 @@
+[Unit]
+Description=Prometheus Alertmanager
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+{% set address = hostvars[inventory_hostname].ansible_host %}
+{% set endpoint_address = '[' ~ address ~ ']' if ':' in address else address %}
+User=alertmanager
+Group=alertmanager
+Type=simple
+ExecStart=/usr/local/bin/alertmanager \
+  --config.file={{ observeweaver_config_root }}/alertmanager/alertmanager.yml \
+  --storage.path={{ observeweaver_data_root }}/alertmanager \
+  --web.listen-address={{ endpoint_address }}:{{ observeweaver.network.ports.alertmanager }} \
+  --cluster.listen-address={{ endpoint_address }}:{{ observeweaver.network.ports.alertmanagerCluster }}{% for host in groups.get('alertmanager', []) if host != inventory_hostname %} \
+{% set peer_address = hostvars[host].ansible_host %}
+  --cluster.peer={{ '[' ~ peer_address ~ ']' if ':' in peer_address else peer_address }}:{{ observeweaver.network.ports.alertmanagerCluster }}{% endfor %}{{ '\n' }}Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ observeweaver_data_root }}/alertmanager
+
+[Install]
+WantedBy=multi-user.target

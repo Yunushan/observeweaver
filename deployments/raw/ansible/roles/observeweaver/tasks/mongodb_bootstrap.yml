@@ -1,0 +1,46 @@
+---
+- name: Check MongoDB bootstrap marker
+  ansible.builtin.stat:
+    path: >-
+      {{ observeweaver_mongodb_data_path }}/.observeweaver-bootstrap-complete
+  register: observeweaver_mongodb_bootstrap_marker
+
+- name: Render one-time MongoDB bootstrap script
+  ansible.builtin.template:
+    src: mongodb-bootstrap.js.j2
+    dest: /root/.observeweaver-mongodb-bootstrap.js
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not observeweaver_mongodb_bootstrap_marker.stat.exists
+
+- name: Initialize MongoDB replica set and administrator
+  ansible.builtin.command:
+    argv:
+      - mongosh
+      - --quiet
+      - --port
+      - "{{ observeweaver.network.ports.mongodb | string }}"
+      - /root/.observeweaver-mongodb-bootstrap.js
+  register: observeweaver_mongodb_bootstrap
+  changed_when: "'OBSERVEWEAVER_CHANGED' in observeweaver_mongodb_bootstrap.stdout"
+  no_log: true
+  when: not observeweaver_mongodb_bootstrap_marker.stat.exists
+
+- name: Record successful MongoDB bootstrap
+  ansible.builtin.file:
+    path: >-
+      {{ observeweaver_mongodb_data_path }}/.observeweaver-bootstrap-complete
+    state: touch
+    owner: "{{ observeweaver_mongodb_service_user }}"
+    group: "{{ observeweaver_mongodb_service_group }}"
+    mode: "0600"
+  when: not observeweaver_mongodb_bootstrap_marker.stat.exists
+
+- name: Remove one-time MongoDB bootstrap script
+  ansible.builtin.file:
+    path: /root/.observeweaver-mongodb-bootstrap.js
+    state: absent
+  no_log: true
+  when: not observeweaver_mongodb_bootstrap_marker.stat.exists

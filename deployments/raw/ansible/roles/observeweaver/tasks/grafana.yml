@@ -1,0 +1,87 @@
+---
+- name: Set Grafana package facts
+  ansible.builtin.set_fact:
+    observeweaver_grafana_version: "{{ observeweaver.components.grafana.version }}"
+    observeweaver_grafana_package_url: >-
+      {{
+        'https://dl.grafana.com/grafana/release/' ~
+        observeweaver.components.grafana.version ~ '/grafana_' ~
+        observeweaver.components.grafana.version ~ '_' ~
+        observeweaver_grafana_build_id ~ '_linux_amd64.deb'
+        if ansible_os_family == 'Debian'
+        else
+        'https://dl.grafana.com/grafana/release/' ~
+        observeweaver.components.grafana.version ~ '/grafana_' ~
+        observeweaver.components.grafana.version ~ '_' ~
+        observeweaver_grafana_build_id ~ '_linux_amd64.rpm'
+      }}
+    observeweaver_grafana_package_checksum: >-
+      {{
+        observeweaver_grafana_linux_amd64_deb_sha256
+        if ansible_os_family == 'Debian'
+        else observeweaver_grafana_linux_amd64_rpm_sha256
+      }}
+    observeweaver_grafana_package_extension: >-
+      {{ 'deb' if ansible_os_family == 'Debian' else 'rpm' }}
+
+- name: Download and verify Grafana package
+  ansible.builtin.get_url:
+    url: "{{ observeweaver_grafana_package_url }}"
+    dest: >-
+      {{ observeweaver_cache_root }}/grafana-{{
+      observeweaver_grafana_version }}.{{
+      observeweaver_grafana_package_extension }}
+    checksum: "sha256:{{ observeweaver_grafana_package_checksum }}"
+    mode: "0644"
+
+- name: Install Grafana package on Debian family
+  ansible.builtin.apt:
+    deb: >-
+      {{ observeweaver_cache_root }}/grafana-{{
+      observeweaver_grafana_version }}.deb
+    state: present
+  when: ansible_os_family == 'Debian'
+  notify: Restart grafana
+
+- name: Install Grafana package on Red Hat family
+  ansible.builtin.dnf:
+    name: >-
+      {{ observeweaver_cache_root }}/grafana-{{
+      observeweaver_grafana_version }}.rpm
+    state: present
+    disable_gpg_check: true
+  when: ansible_os_family == 'RedHat'
+  notify: Restart grafana
+
+- name: Configure Grafana
+  ansible.builtin.template:
+    src: grafana.ini.j2
+    dest: /etc/grafana/grafana.ini
+    owner: root
+    group: grafana
+    mode: "0640"
+  no_log: true
+  notify: Restart grafana
+
+- name: Create Grafana datasource provisioning directory
+  ansible.builtin.file:
+    path: /etc/grafana/provisioning/datasources
+    state: directory
+    owner: root
+    group: grafana
+    mode: "0750"
+
+- name: Provision the Prometheus datasource
+  ansible.builtin.template:
+    src: grafana-datasources.yml.j2
+    dest: /etc/grafana/provisioning/datasources/observeweaver.yml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana
+
+- name: Enable Grafana
+  ansible.builtin.systemd_service:
+    name: grafana-server
+    enabled: true
+    state: started

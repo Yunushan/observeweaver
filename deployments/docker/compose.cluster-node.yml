@@ -1,0 +1,170 @@
+name: observeweaver-cluster
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 20m
+    max-file: "5"
+
+services:
+  prometheus:
+    image: prom/prometheus:v${PROMETHEUS_VERSION:?required}
+    <<: *restart
+    network_mode: host
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+      - --web.listen-address=${NODE_ENDPOINT_ADDRESS:?required}:${PROMETHEUS_PORT:-9090}
+    volumes:
+      - "${NODE_CONFIG_DIR:?required}/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - prometheus-data:/prometheus
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [prometheus]
+
+  alertmanager:
+    image: prom/alertmanager:v${ALERTMANAGER_VERSION:?required}
+    <<: *restart
+    network_mode: host
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        set -- /bin/alertmanager \
+          --config.file=/etc/alertmanager/alertmanager.yml \
+          --storage.path=/alertmanager \
+          --web.listen-address=${NODE_ENDPOINT_ADDRESS}:${ALERTMANAGER_PORT:-9093} \
+          --cluster.listen-address=${NODE_ENDPOINT_ADDRESS}:${ALERTMANAGER_CLUSTER_PORT:-9094}
+        old_ifs="$$IFS"
+        IFS=","
+        for peer in ${ALERTMANAGER_PEERS:-}; do
+          if [ -n "$$peer" ]; then
+            set -- "$$@" "--cluster.peer=$$peer"
+          fi
+        done
+        IFS="$$old_ifs"
+        exec "$$@"
+    volumes:
+      - "${NODE_CONFIG_DIR:?required}/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"
+      - alertmanager-data:/alertmanager
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [alertmanager]
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:?required}
+    <<: *restart
+    network_mode: host
+    environment:
+      GF_SERVER_HTTP_ADDR: ${NODE_ADDRESS:?required}
+      GF_SERVER_HTTP_PORT: ${GRAFANA_PORT:-3000}
+      GF_SERVER_DOMAIN: grafana.${OBSERVEWEAVER_DOMAIN:?required}
+      GF_SERVER_ROOT_URL: ${OBSERVEWEAVER_SCHEME:-https}://grafana.${OBSERVEWEAVER_DOMAIN}/
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?required}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DATABASE_TYPE: postgres
+      GF_DATABASE_HOST: ${GRAFANA_DATABASE_HOST:?required}
+      GF_DATABASE_NAME: ${GRAFANA_DATABASE_NAME:-grafana}
+      GF_DATABASE_USER: ${GRAFANA_DATABASE_USER:-grafana}
+      GF_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      GF_DATABASE_SSL_MODE: require
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - "${NODE_CONFIG_DIR:?required}/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro"
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [grafana]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:${OTELCOL_VERSION:?required}
+    <<: *restart
+    network_mode: host
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    volumes:
+      - "${NODE_CONFIG_DIR:?required}/otel-collector.yml:/etc/otelcol-contrib/config.yml:ro"
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [opentelemetry]
+
+  mongodb:
+    image: mongo:${MONGODB_VERSION:?required}
+    <<: *restart
+    network_mode: host
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        umask 077
+        printf '%s' "$${MONGODB_REPLICA_SET_KEY}" >/tmp/observeweaver-keyfile
+        chown mongodb:mongodb /tmp/observeweaver-keyfile
+        exec docker-entrypoint.sh mongod \
+          --bind_ip 127.0.0.1,${NODE_ADDRESS} \
+          --port ${MONGODB_PORT:-27017} \
+          --replSet observeweaver \
+          --keyFile /tmp/observeweaver-keyfile
+    environment:
+      MONGODB_REPLICA_SET_KEY: ${MONGODB_REPLICA_SET_KEY:?required}
+    volumes:
+      - mongodb-data:/data/db
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [mongodb]
+
+  opensearch:
+    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:?required}
+    <<: *restart
+    network_mode: host
+    environment:
+      cluster.name: observeweaver
+      node.name: ${NODE_NAME:?required}
+      network.host: ${NODE_ADDRESS:?required}
+      http.port: ${OPENSEARCH_PORT:-9200}
+      transport.port: ${OPENSEARCH_TRANSPORT_PORT:-9300}
+      discovery.seed_hosts: ${OPENSEARCH_SEED_HOSTS:?required}
+      cluster.initial_cluster_manager_nodes: ${OPENSEARCH_INITIAL_CLUSTER_MANAGER_NODES:?required}
+      node.roles: cluster_manager,data,ingest,remote_cluster_client
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms8g -Xmx8g}
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+    ulimits:
+      memlock: {soft: -1, hard: -1}
+      nofile: {soft: 65536, hard: 65536}
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    logging: *logging
+    profiles: [opensearch]
+
+  graylog:
+    image: graylog/graylog:${GRAYLOG_VERSION:?required}
+    <<: *restart
+    network_mode: host
+    environment:
+      GRAYLOG_LEADER_ELECTION_MODE: automatic
+      GRAYLOG_PASSWORD_SECRET: ${GRAYLOG_PASSWORD_SECRET:?required}
+      GRAYLOG_ROOT_PASSWORD_SHA2: ${GRAYLOG_ROOT_PASSWORD_SHA2:?required}
+      GRAYLOG_HTTP_BIND_ADDRESS: ${NODE_ENDPOINT_ADDRESS:?required}:${GRAYLOG_HTTP_PORT:-9000}
+      GRAYLOG_HTTP_PUBLISH_URI: http://${NODE_ENDPOINT_ADDRESS}:${GRAYLOG_HTTP_PORT:-9000}/
+      GRAYLOG_HTTP_EXTERNAL_URI: ${OBSERVEWEAVER_SCHEME:-https}://graylog.${OBSERVEWEAVER_DOMAIN:?required}/
+      GRAYLOG_MESSAGE_JOURNAL_MAX_AGE: ${GRAYLOG_RETENTION_DAYS:-90}d
+      GRAYLOG_ELASTICSEARCH_REPLICAS: ${GRAYLOG_ELASTICSEARCH_REPLICAS:-1}
+      GRAYLOG_ROTATION_STRATEGY: time
+      GRAYLOG_ELASTICSEARCH_MAX_TIME_PER_INDEX: 1d
+      GRAYLOG_RETENTION_STRATEGY: delete
+      GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES: ${GRAYLOG_RETENTION_DAYS:-90}
+    volumes:
+      - graylog-journal:/usr/share/graylog/data/journal
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [graylog]
+
+volumes:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
+  mongodb-data:
+  opensearch-data:
+  graylog-journal:

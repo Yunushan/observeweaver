@@ -1,0 +1,110 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trivy:
+    name: Repository security scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan configuration, dependencies, and secrets
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          version: "v0.72.0"
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret,license
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+      packages: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
+        with:
+          languages: python,actions
+          queries: security-extended
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81
+
+  pin-policy:
+    name: Pin and secret policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Reject latest tags and unpinned actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R --line-number -E 'image:.*:latest([[:space:]]|$)' \
+            deployments config; then
+            exit 1
+          fi
+          python - <<'PY'
+          import pathlib
+          import re
+
+          bad = []
+          for path in pathlib.Path(".github/workflows").glob("*.y*ml"):
+              for number, line in enumerate(path.read_text().splitlines(), 1):
+                  match = re.search(r"^\s*uses:\s*[^@\s]+@([^\s#]+)", line)
+                  if match and not re.fullmatch(r"[0-9a-f]{40}", match.group(1)):
+                      bad.append(f"{path}:{number}: action is not pinned to a full SHA")
+          if bad:
+              raise SystemExit("\n".join(bad))
+          PY
+
+      - name: Reject secret files
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files |
+            grep -v -E '(^|/)\.env\.example$' |
+            grep -E '(^|/)(\.env($|\.)|secrets/|id_rsa|.*\.pem$|.*\.key$)'; then
+            printf 'Tracked secret-like file detected.\n' >&2
+            exit 1
+          fi

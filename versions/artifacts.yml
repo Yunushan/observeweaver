@@ -1,0 +1,66 @@
+schemaVersion: 1
+updated: "2026-07-30"
+
+artifacts:
+  prometheus:
+    version: "3.13.1"
+    linuxAmd64:
+      url: https://github.com/prometheus/prometheus/releases/download/v3.13.1/prometheus-3.13.1.linux-amd64.tar.gz
+      sha256: 962b812371aff838d152b6ff2d56fdb7a6396f5542f48ebf73421b9721f0d103
+    windowsAmd64:
+      url: https://github.com/prometheus/prometheus/releases/download/v3.13.1/prometheus-3.13.1.windows-amd64.zip
+      sha256: 5409abdcac847984ab7869d7814e6e8cff65b4411d62e7477b960b92eadfa08a
+
+  alertmanager:
+    version: "0.33.1"
+    linuxAmd64:
+      url: https://github.com/prometheus/alertmanager/releases/download/v0.33.1/alertmanager-0.33.1.linux-amd64.tar.gz
+      sha256: 93d802cba6a8d27239d747ce117df7648d326ab67394e32247540b030e9842ba
+    windowsAmd64:
+      url: https://github.com/prometheus/alertmanager/releases/download/v0.33.1/alertmanager-0.33.1.windows-amd64.zip
+      sha256: b94f1a981ed8e8a07a6e9be015466e9cd8d180ad8659dfeeed16617248f90b93
+
+  grafana:
+    version: "13.1.1"
+    buildId: "29761037902"
+    baseUrl: https://dl.grafana.com/grafana/release/13.1.1/
+    linuxDeb: grafana_13.1.1_29761037902_linux_amd64.deb
+    linuxDebSha256: f6b7ffa4cb7680820d3b75e842febf99b828248a7ac8a6923c726c03846e9ded
+    linuxRpm: grafana_13.1.1_29761037902_linux_amd64.rpm
+    linuxRpmSha256: f46b7265bc1f416c5aa54b4133e630f0c92482ca088b0b11a9fded2a0cb94087
+    windowsMsi: grafana_13.1.1_29761037902_windows_amd64.msi
+    windowsMsiSha256: b27ee67cea415ac70e0738eaa367837255099014afcb708972077c342675d2d1
+
+  opentelemetryCollectorContrib:
+    version: "0.157.0"
+    baseUrl: https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.157.0/
+    checksums: opentelemetry-collector-releases_otelcol-contrib_checksums.txt
+    linuxDeb: otelcol-contrib_0.157.0_linux_amd64.deb
+    linuxDebSha256: 690ae3cb572c8f1ac4a926a77d8b9a94ab9f91e97fc0b60fba8a005f2d922632
+    linuxRpm: otelcol-contrib_0.157.0_linux_amd64.rpm
+    linuxRpmSha256: b995b9a965f6ef2e82ed63d2fa56e0e576d3c812d082f65bc1d91518396136c4
+    windowsMsi: otelcol-contrib_0.157.0_windows_x64.msi
+    windowsMsiSha256: 06e71ae95fdb94dde25b0f6b3087165dec7d2dfa0d7a2ecf19921d29e1956922
+
+  graylog:
+    version: "7.1.6"
+    linuxX64: https://downloads.graylog.org/releases/graylog/graylog-7.1.6-linux-x64.tgz
+    linuxArm64: https://downloads.graylog.org/releases/graylog/graylog-7.1.6-linux-aarch64.tgz
+    repositoryDeb: https://packages.graylog2.org/repo/packages/graylog-7.1-repository_latest.deb
+    repositoryRpm: https://packages.graylog2.org/repo/packages/graylog-7.1-repository_latest.rpm
+
+  opensearchGraylogBackend:
+    version: "2.19.5"
+    linuxDeb: https://artifacts.opensearch.org/releases/bundle/opensearch/2.19.5/opensearch-2.19.5-linux-x64.deb
+    linuxRpm: https://artifacts.opensearch.org/releases/bundle/opensearch/2.19.5/opensearch-2.19.5-linux-x64.rpm
+    windowsZip: https://artifacts.opensearch.org/releases/bundle/opensearch/2.19.5/opensearch-2.19.5-windows-x64.zip
+    windowsZipSha512: e9ba47d5143250269c2083843d15bb4df363823402c80c1f8650b613ae118e5c7efd00d60cc38146c26d1c4e8837b2e4b23d3fc90e451833b6fdd255671f7ae8
+    signatureSuffix: .sig
+
+  mongodb:
+    version: "8.0.28"
+    ubuntu2204: https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-8.0.28.tgz
+    ubuntu2404: https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2404-8.0.28.tgz
+    rhel8: https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel8-8.0.28.tgz
+    rhel93: https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-rhel93-8.0.28.tgz
+    windowsMsi: https://fastdl.mongodb.org/windows/mongodb-windows-x86_64-8.0.28-signed.msi

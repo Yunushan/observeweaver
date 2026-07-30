@@ -1,0 +1,25 @@
+schemaVersion: 1
+updated: "2026-07-30"
+
+graylog:
+  "7.1":
+    tested: "7.1.6"
+    mongodb:
+      minimum: "7.0"
+      conservativeMaximum: "8.0"
+      upstreamCompatibilityMaximum: "8.2"
+    selfManagedOpenSearch:
+      minimum: "1.1.0"
+      maximum: "2.19.5"
+      tested: "2.19.5"
+      rejectedMajors: [3]
+    kubernetes:
+      minimum: "1.32"
+    upgrade:
+      rolling: false
+      sameVersionDataNodeRequired: true
+
+notes:
+  - Graylog Data Node is preferred over a self-managed OpenSearch backend.
+  - OpenSearch 3.x is a separate general-purpose profile and is never a Graylog backend.
+  - The repository license does not change any deployed component license.

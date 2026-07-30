@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a reproducible ObserveWeaver problem without private data.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, private keys, or internal infrastructure details.
+  - type: input
+    id: version
+    attributes:
+      label: ObserveWeaver version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Deployment engine
+      options:
+        - raw
+        - docker
+        - k3s
+        - rke2
+        - windows-native-subset
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem and expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Sanitized reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation output
+      description: Paste owctl validation output with private data removed.

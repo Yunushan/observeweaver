@@ -1,0 +1,35 @@
+# Generated configuration and build output
+/build/
+/secrets/
+/.observeweaver/
+*.generated.*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+*.egg-info/
+
+# Ansible
+*.retry
+.ansible/
+
+# Helm and Kubernetes
+charts/*.tgz
+deployments/kubernetes/charts/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local environment files
+.env
+.env.*
+!.env.example

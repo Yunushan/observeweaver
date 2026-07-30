@@ -1,0 +1,23 @@
+apiVersion: 1
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+datasources:
+{% if groups.get('prometheus', []) %}
+{% set prometheus_host = inventory_hostname if inventory_hostname in groups['prometheus'] else groups['prometheus'] | first %}
+{% set prometheus_address = hostvars[prometheus_host].ansible_host %}
+{% set prometheus_endpoint = '[' ~ prometheus_address ~ ']' if ':' in prometheus_address else prometheus_address %}
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://{{ prometheus_endpoint }}:{{ observeweaver.network.ports.prometheus }}
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      prometheusType: Prometheus
+      timeInterval: 15s
+{% else %}
+  []
+{% endif %}

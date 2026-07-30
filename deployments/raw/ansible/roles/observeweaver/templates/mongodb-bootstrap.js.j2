@@ -1,0 +1,42 @@
+const admin = db.getSiblingDB("admin");
+let changed = false;
+
+{% if observeweaver.deployment.mode == 'cluster' %}
+try {
+  rs.status();
+} catch (error) {
+  rs.initiate({
+    _id: "observeweaver",
+    members: [
+{% for host in groups.get('mongodb', []) %}
+      { _id: {{ loop.index0 }}, host: "{{ host }}:{{ observeweaver.network.ports.mongodb }}" }{{ "," if not loop.last else "" }}
+{% endfor %}
+    ]
+  });
+  changed = true;
+}
+
+for (let attempt = 0; attempt < 120; attempt += 1) {
+  try {
+    if (db.hello().isWritablePrimary) {
+      break;
+    }
+  } catch (error) {
+    // The replica set is still electing a primary.
+  }
+  sleep(1000);
+}
+{% endif %}
+
+if (admin.getUser("graylog") === null) {
+  admin.createUser({
+    user: "graylog",
+    pwd: "{{ lookup('ansible.builtin.ini', 'MONGODB_ROOT_PASSWORD', type='properties', file=observeweaver_secret_file) }}",
+    roles: [{ role: "root", db: "admin" }]
+  });
+  changed = true;
+}
+
+if (changed) {
+  print("OBSERVEWEAVER_CHANGED");
+}

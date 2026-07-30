@@ -1,0 +1,320 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  config-and-python:
+    name: Configuration and Python
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: PYTHONPATH=src python -m unittest discover -s tests -v
+
+      - name: Validate and render every example
+        shell: bash
+        run: |
+          set -euo pipefail
+          for config in config/examples/*.yml; do
+            PYTHONPATH=src python -m observeweaver.cli validate --config "${config}"
+            PYTHONPATH=src python -m observeweaver.cli render \
+              --config "${config}" \
+              --output "build/$(basename "${config}" .yml)"
+          done
+
+      - name: Lint Python
+        run: ruff check src tests
+
+      - name: Check deterministic rendering
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src python -m observeweaver.cli render \
+            --config config/examples/cluster.yml \
+            --output /tmp/render-one
+          PYTHONPATH=src python -m observeweaver.cli render \
+            --config config/examples/cluster.yml \
+            --output /tmp/render-two
+          diff -ru /tmp/render-one /tmp/render-two
+
+  yaml-and-shell:
+    name: YAML and shell
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install YAML linter
+        run: python -m pip install --disable-pip-version-check yamllint==1.38.0
+
+      - name: Lint YAML
+        run: yamllint .
+
+      - name: Parse all JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            python -m json.tool "${file}" >/dev/null
+          done < <(find . -type f -name '*.json' -print0)
+
+      - name: Parse all shell scripts
+        shell: bash
+        run: find scripts deployments -type f -name '*.sh' -exec bash -n {} +
+
+      - name: Run ShellCheck
+        shell: bash
+        run: find scripts deployments -type f -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning
+
+  compose:
+    name: Docker Compose render
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install renderer
+        run: python -m pip install --disable-pip-version-check -e .
+
+      - name: Render test fixtures and secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          owctl render --config config/examples/standalone.yml --output build
+          owctl render --config config/examples/docker-cluster.yml --output build
+          owctl secrets --output /tmp/observeweaver.env
+
+      - name: Validate standalone Compose
+        shell: bash
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG_DIR="${PWD}/build/production/docker/configs"
+          docker compose \
+            --project-directory deployments/docker \
+            --env-file build/production/docker/.env.generated \
+            --env-file /tmp/observeweaver.env \
+            -f deployments/docker/compose.yml \
+            config --quiet
+
+      - name: Validate every cluster-node bundle
+        shell: bash
+        env:
+          GRAFANA_DATABASE_HOST: postgresql.example.com:5432
+        run: |
+          set -euo pipefail
+          for node in obs-01 obs-02 obs-03; do
+            export NODE_CONFIG_DIR="${PWD}/build/production/docker/nodes/${node}"
+            docker compose \
+              --project-name "observeweaver-${node}" \
+              --env-file "build/production/docker/nodes/${node}/.env.generated" \
+              --env-file /tmp/observeweaver.env \
+              -f deployments/docker/compose.cluster-node.yml \
+              -f "build/production/docker/nodes/${node}/compose.override.generated.yml" \
+              config --quiet
+          done
+
+  ansible:
+    name: Ansible syntax
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install Ansible tooling
+        run: |
+          python -m pip install --disable-pip-version-check \
+            ansible-core==2.19.1 \
+            ansible-lint==26.6.0 \
+            PyYAML==6.0.3
+          ansible-galaxy collection install \
+            -r deployments/raw/ansible/requirements.yml
+
+      - name: Render inventory
+        run: |
+          PYTHONPATH=src python -m observeweaver.cli render \
+            --config config/examples/docker-cluster.yml \
+            --output build
+          PYTHONPATH=src python -m observeweaver.cli secrets \
+            --output /tmp/observeweaver.env
+
+      - name: Run Ansible syntax check
+        working-directory: deployments/raw/ansible
+        run: |
+          ansible-playbook \
+            -i ../../../build/production/ansible/inventory.generated.ini \
+            playbooks/site.yml \
+            --extra-vars @../../../build/production/ansible/group_vars.generated.yml \
+            --extra-vars observeweaver_secret_file=/tmp/observeweaver.env \
+            --syntax-check
+
+      - name: Run Ansible lint
+        working-directory: deployments/raw/ansible
+        run: ansible-lint --profile production .
+
+  helm:
+    name: Helm templates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
+      - name: Install renderer
+        run: python -m pip install --disable-pip-version-check -e .
+
+      - name: Download and verify locked charts
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            https://github.com/prometheus-community/helm-charts/releases/download/kube-prometheus-stack-87.21.0/kube-prometheus-stack-87.21.0.tgz \
+            --output /tmp/kube-prometheus-stack.tgz
+          curl --fail --silent --show-error --location \
+            https://github.com/open-telemetry/opentelemetry-helm-charts/releases/download/opentelemetry-collector-0.165.0/opentelemetry-collector-0.165.0.tgz \
+            --output /tmp/opentelemetry-collector.tgz
+          curl --fail --silent --show-error --location \
+            https://github.com/Graylog2/graylog-helm/releases/download/graylog-1.0.0/graylog-1.0.0.tgz \
+            --output /tmp/graylog.tgz
+          curl --fail --silent --show-error --location \
+            https://github.com/mongodb/helm-charts/releases/download/mongodb-kubernetes-1.6.1/mongodb-kubernetes-1.6.1.tgz \
+            --output /tmp/mongodb-kubernetes.tgz
+          sha256sum --check <<'EOF'
+          05eae98df0ff6c21877a26a4400780e4bbff248bc3b88694ef8d08b273ed6815  /tmp/kube-prometheus-stack.tgz
+          b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5  /tmp/opentelemetry-collector.tgz
+          06e18864ca7a81809ad23cd081a73b5306ea9f80f78ea3cc71e2abeb64dcf1a4  /tmp/graylog.tgz
+          4d9d167c5c7f41d559a948f18a24cee64c96530db098b07e39f59825cc12b6fd  /tmp/mongodb-kubernetes.tgz
+          EOF
+
+      - name: Render and validate charts
+        shell: bash
+        run: |
+          set -euo pipefail
+          owctl render --config config/examples/cluster.yml --output build
+          helm template observeweaver-monitoring /tmp/kube-prometheus-stack.tgz \
+            --namespace observeweaver \
+            --kube-version 1.33 \
+            --values build/production/kubernetes/kube-prometheus-stack.values.generated.yml \
+            >/dev/null
+          helm template observeweaver-otel /tmp/opentelemetry-collector.tgz \
+            --namespace observeweaver \
+            --kube-version 1.33 \
+            --values build/production/kubernetes/opentelemetry-collector.values.generated.yml \
+            >/dev/null
+          helm template observeweaver-graylog /tmp/graylog.tgz \
+            --namespace observeweaver \
+            --kube-version 1.33 \
+            --values build/production/kubernetes/graylog.values.generated.yml \
+            --set-string graylog.config.rootPassword=validation-only \
+            >/dev/null
+          helm template mongodb-kubernetes-operator /tmp/mongodb-kubernetes.tgz \
+            --namespace mongodb-operator \
+            --kube-version 1.33 \
+            --set 'operator.watchNamespace=*' \
+            >/dev/null
+
+  powershell:
+    name: PowerShell
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Install analyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+
+      - name: Parse and analyze PowerShell
+        shell: pwsh
+        run: |
+          $errors = @()
+          Get-ChildItem -Recurse -Include *.ps1,*.psm1 | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$parseErrors
+            )
+            $errors += $parseErrors
+          }
+          if ($errors.Count -gt 0) {
+            $errors | Format-List
+            throw 'PowerShell parse errors found.'
+          }
+          $findings = Invoke-ScriptAnalyzer -Path . -Recurse -Severity Warning,Error
+          if ($findings) {
+            $findings | Format-Table
+            throw 'PSScriptAnalyzer findings found.'
+          }
+
+  required:
+    name: Required checks
+    if: always()
+    needs: [config-and-python, yaml-and-shell, compose, ansible, helm, powershell]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          test "${RESULTS}" = "success success success success success success"

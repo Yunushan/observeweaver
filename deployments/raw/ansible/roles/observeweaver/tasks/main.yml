@@ -1,0 +1,39 @@
+---
+- name: Include common host preparation
+  ansible.builtin.import_tasks: common.yml
+
+- name: Install Prometheus
+  ansible.builtin.include_tasks: prometheus.yml
+  when:
+    - observeweaver.components.prometheus.enabled | bool
+    - inventory_hostname in groups.get('prometheus', [])
+
+- name: Install Alertmanager
+  ansible.builtin.include_tasks: alertmanager.yml
+  when:
+    - observeweaver.components.alertmanager.enabled | bool
+    - inventory_hostname in groups.get('alertmanager', [])
+
+- name: Install Grafana
+  ansible.builtin.include_tasks: grafana.yml
+  when:
+    - observeweaver.components.grafana.enabled | bool
+    - inventory_hostname in groups.get('grafana', [])
+
+- name: Install OpenTelemetry Collector
+  ansible.builtin.include_tasks: otel.yml
+  when:
+    - observeweaver.components.opentelemetry.enabled | bool
+    - inventory_hostname in groups.get('opentelemetry', [])
+
+- name: Install MongoDB
+  ansible.builtin.include_tasks: mongodb.yml
+  when:
+    - observeweaver.components.graylog.enabled | bool
+    - inventory_hostname in groups.get('mongodb', [])
+
+- name: Install OpenSearch
+  ansible.builtin.include_tasks: opensearch.yml
+  when:
+    - observeweaver.components.opensearch.enabled | bool
+    - inventory_hostname in groups.get('opensearch', [])

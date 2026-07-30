@@ -1,0 +1,23 @@
+---
+observeweaver_install_root: /opt/observeweaver
+observeweaver_cache_root: /var/cache/observeweaver
+observeweaver_config_root: /etc/observeweaver
+observeweaver_data_root: /var/lib/observeweaver
+
+observeweaver_download_arch:
+  x86_64: amd64
+  aarch64: arm64
+
+observeweaver_opensearch_arch:
+  x86_64: x64
+  aarch64: arm64
+
+observeweaver_graylog_repository_major: "7.1"
+observeweaver_mongodb_repository_major: "8.0"
+observeweaver_grafana_build_id: "29761037902"
+observeweaver_prometheus_linux_amd64_sha256: "962b812371aff838d152b6ff2d56fdb7a6396f5542f48ebf73421b9721f0d103"
+observeweaver_alertmanager_linux_amd64_sha256: "93d802cba6a8d27239d747ce117df7648d326ab67394e32247540b030e9842ba"
+observeweaver_grafana_linux_amd64_deb_sha256: "f6b7ffa4cb7680820d3b75e842febf99b828248a7ac8a6923c726c03846e9ded"
+observeweaver_grafana_linux_amd64_rpm_sha256: "f46b7265bc1f416c5aa54b4133e630f0c92482ca088b0b11a9fded2a0cb94087"
+observeweaver_otel_linux_amd64_deb_sha256: "690ae3cb572c8f1ac4a926a77d8b9a94ab9f91e97fc0b60fba8a005f2d922632"
+observeweaver_otel_linux_amd64_rpm_sha256: "b995b9a965f6ef2e82ed63d2fa56e0e576d3c812d082f65bc1d91518396136c4"

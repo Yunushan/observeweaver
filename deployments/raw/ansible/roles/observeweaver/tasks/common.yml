@@ -1,0 +1,65 @@
+---
+- name: Create ObserveWeaver directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ observeweaver_install_root }}"
+    - "{{ observeweaver_cache_root }}"
+    - "{{ observeweaver_config_root }}"
+    - "{{ observeweaver_data_root }}"
+
+- name: Install base packages
+  ansible.builtin.package:
+    name:
+      - curl
+      - tar
+      - unzip
+      - ca-certificates
+      - openssl
+    state: present
+
+- name: Install SELinux administration tools on Red Hat family
+  ansible.builtin.dnf:
+    name: policycoreutils-python-utils
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Publish stable ObserveWeaver node names locally
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} OBSERVEWEAVER NODES"
+    block: |
+      {% for host in groups.get('observeweaver', []) %}
+      {{ hostvars[host].ansible_host }} {{ host }}
+      {% endfor %}
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure OpenSearch virtual-memory requirement
+  ansible.posix.sysctl:
+    name: vm.max_map_count
+    value: "262144"
+    state: present
+    sysctl_set: true
+    reload: true
+  when: inventory_hostname in groups.get('data', [])
+
+- name: Configure data-service file descriptor limit
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/99-observeweaver.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      opensearch soft nofile 65536
+      opensearch hard nofile 65536
+      mongodb soft nofile 65536
+      mongodb hard nofile 65536
+      mongod soft nofile 65536
+      mongod hard nofile 65536
+  when: inventory_hostname in groups.get('data', [])

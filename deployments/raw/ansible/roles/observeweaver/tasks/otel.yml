@@ -1,0 +1,63 @@
+---
+- name: Set OpenTelemetry package facts
+  ansible.builtin.set_fact:
+    observeweaver_otel_version: "{{ observeweaver.components.opentelemetry.version }}"
+    observeweaver_otel_arch: "{{ observeweaver_download_arch[ansible_architecture] }}"
+    observeweaver_otel_package_url: >-
+      https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v{{
+      observeweaver.components.opentelemetry.version }}/otelcol-contrib_{{
+      observeweaver.components.opentelemetry.version }}_linux_{{
+      observeweaver_download_arch[ansible_architecture] }}.{{
+      'deb' if ansible_os_family == 'Debian' else 'rpm' }}
+    observeweaver_otel_package_checksum: >-
+      {{
+        observeweaver_otel_linux_amd64_deb_sha256
+        if ansible_os_family == 'Debian'
+        else observeweaver_otel_linux_amd64_rpm_sha256
+      }}
+    observeweaver_otel_package_extension: >-
+      {{ 'deb' if ansible_os_family == 'Debian' else 'rpm' }}
+
+- name: Download and verify OpenTelemetry Collector package
+  ansible.builtin.get_url:
+    url: "{{ observeweaver_otel_package_url }}"
+    dest: >-
+      {{ observeweaver_cache_root }}/otelcol-contrib-{{
+      observeweaver_otel_version }}.{{
+      observeweaver_otel_package_extension }}
+    checksum: "sha256:{{ observeweaver_otel_package_checksum }}"
+    mode: "0644"
+
+- name: Install OpenTelemetry Collector package on Debian family
+  ansible.builtin.apt:
+    deb: >-
+      {{ observeweaver_cache_root }}/otelcol-contrib-{{
+      observeweaver_otel_version }}.deb
+    state: present
+  when: ansible_os_family == 'Debian'
+  notify: Restart otel
+
+- name: Install OpenTelemetry Collector package on Red Hat family
+  ansible.builtin.dnf:
+    name: >-
+      {{ observeweaver_cache_root }}/otelcol-contrib-{{
+      observeweaver_otel_version }}.rpm
+    state: present
+    disable_gpg_check: true
+  when: ansible_os_family == 'RedHat'
+  notify: Restart otel
+
+- name: Configure OpenTelemetry Collector
+  ansible.builtin.template:
+    src: otel-collector.yml.j2
+    dest: /etc/otelcol-contrib/config.yaml
+    owner: otelcol-contrib
+    group: otelcol-contrib
+    mode: "0640"
+  notify: Restart otel
+
+- name: Enable OpenTelemetry Collector
+  ansible.builtin.systemd_service:
+    name: otelcol-contrib
+    enabled: true
+    state: started

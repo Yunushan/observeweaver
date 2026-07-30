@@ -1,0 +1,120 @@
+apiVersion: observeweaver.io/v1alpha1
+kind: ObserveWeaver
+
+metadata:
+  name: observeweaver-docker-ha
+  environment: production
+
+deployment:
+  engine: docker
+  mode: cluster
+  namespace: observeweaver
+
+platform:
+  family: linux
+  distribution: ubuntu
+  version: "24.04"
+  execution: native
+
+nodes:
+  - name: obs-01
+    address: 192.0.2.11
+    roles: [metrics, telemetry, logs, data, ingress]
+  - name: obs-02
+    address: 192.0.2.12
+    roles: [metrics, telemetry, logs, data, ingress]
+  - name: obs-03
+    address: 192.0.2.13
+    roles: [metrics, telemetry, logs, data, ingress]
+
+network:
+  domain: observability.example.com
+  bindAddress: 0.0.0.0
+  vip: 192.0.2.10
+  ingress:
+    enabled: true
+    className: external
+  ports:
+    prometheus: 9090
+    alertmanager: 9093
+    alertmanagerCluster: 9094
+    grafana: 3000
+    otlpGrpc: 4317
+    otlpHttp: 4318
+    otelHealth: 13133
+    otelMetrics: 8888
+    otelPrometheus: 8889
+    graylogHttp: 9000
+    graylogDataNode: 8999
+    graylogBeats: 5044
+    graylogGelfTcp: 12201
+    graylogGelfUdp: 12201
+    graylogSyslogTcp: 1514
+    graylogSyslogUdp: 1514
+    opensearch: 9200
+    opensearchTransport: 9300
+    mongodb: 27017
+
+tls:
+  # Multi-host Compose expects an external load balancer to terminate HTTPS.
+  mode: provided
+  provided:
+    certificateFile: /etc/observeweaver/tls/fullchain.pem
+    privateKeyFile: /etc/observeweaver/tls/private.key
+  certManager:
+    clusterIssuer: null
+
+storage:
+  className: docker-local
+  shared: false
+  sizes:
+    prometheus: 250Gi
+    alertmanager: 10Gi
+    grafana: 20Gi
+    graylogJournal: 100Gi
+    opensearch: 1Ti
+    mongodb: 50Gi
+    postgresql: 50Gi
+
+retention:
+  metricsDays: 30
+  logsDays: 90
+
+security:
+  allowPlaintext: false
+  secretFile: secrets/observeweaver.env
+  kubernetesSecretName: observeweaver-secrets
+
+components:
+  prometheus:
+    enabled: true
+    version: "3.13.1"
+    replicas: 3
+  alertmanager:
+    enabled: true
+    version: "0.33.1"
+    replicas: 3
+  grafana:
+    enabled: true
+    version: "13.1.1"
+    replicas: 3
+  opentelemetry:
+    enabled: true
+    version: "0.157.0"
+    replicas: 3
+  graylog:
+    enabled: true
+    version: "7.1.6"
+    replicas: 3
+  opensearch:
+    enabled: true
+    version: "2.19.5"
+    replicas: 3
+    javaOpts: -Xms8g -Xmx8g
+
+dependencies:
+  mongodb:
+    version: "8.0.28"
+  postgresql:
+    version: "17"
+    external: true

@@ -1,0 +1,77 @@
+---
+- name: Preflight ObserveWeaver native hosts
+  hosts: observeweaver
+  become: true
+  gather_facts: true
+  tags: [always]
+  tasks:
+    - name: Validate supported native server platform
+      ansible.builtin.assert:
+        that:
+          - ansible_os_family in ['Debian', 'RedHat']
+          - ansible_distribution | lower in ['ubuntu', 'rocky', 'almalinux', 'redhat']
+          - ansible_architecture == 'x86_64'
+          - >-
+            (ansible_distribution | lower ==
+            observeweaver.platform.distribution) or
+            (ansible_distribution | lower == 'redhat' and
+            observeweaver.platform.distribution == 'rhel')
+          - >-
+            (observeweaver.platform.distribution == 'ubuntu' and
+            ansible_distribution_version == observeweaver.platform.version) or
+            (observeweaver.platform.distribution in
+            ['rocky', 'almalinux', 'rhel'] and
+            ansible_distribution_major_version ==
+            observeweaver.platform.version)
+        fail_msg: >-
+          Target facts must match the canonical platform exactly. Full native
+          server installation is supported on x86_64 Ubuntu 22.04/24.04 and
+          Enterprise Linux 9. Use deployments/raw/windows for the
+          Windows-supported subset.
+
+    - name: Validate secret file exists on controller
+      ansible.builtin.assert:
+        that:
+          - observeweaver_secret_file is defined
+          - lookup('ansible.builtin.file', observeweaver_secret_file, errors='ignore') | length > 0
+        fail_msg: Run owctl secrets and pass observeweaver_secret_file.
+      run_once: true
+      delegate_to: localhost
+      become: false
+      no_log: true
+
+- name: Install and configure ObserveWeaver
+  hosts: observeweaver
+  become: true
+  gather_facts: true
+  serial: 1
+  roles:
+    - role: observeweaver
+
+- name: Bootstrap MongoDB after every data node is online
+  hosts: mongodb
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Initialize the MongoDB replica set once
+      ansible.builtin.include_role:
+        name: observeweaver
+        tasks_from: mongodb_bootstrap.yml
+      when:
+        - observeweaver.components.graylog.enabled | bool
+        - inventory_hostname == groups['mongodb'] | first
+
+- name: Install Graylog after its databases are ready
+  hosts: graylog
+  become: true
+  gather_facts: true
+  serial: 1
+  tasks:
+    - name: Install and configure Graylog
+      ansible.builtin.include_role:
+        name: observeweaver
+        tasks_from: graylog.yml
+      when: observeweaver.components.graylog.enabled | bool
+
+- name: Verify native ObserveWeaver services
+  ansible.builtin.import_playbook: verify.yml

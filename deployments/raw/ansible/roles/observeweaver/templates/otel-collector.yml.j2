@@ -1,0 +1,50 @@
+{% set address = hostvars[inventory_hostname].ansible_host %}
+{% set endpoint_address = '[' ~ address ~ ']' if ':' in address else address %}
+extensions:
+  health_check:
+    endpoint: "{{ endpoint_address }}:{{ observeweaver.network.ports.otelHealth }}"
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "{{ endpoint_address }}:{{ observeweaver.network.ports.otlpGrpc }}"
+      http:
+        endpoint: "{{ endpoint_address }}:{{ observeweaver.network.ports.otlpHttp }}"
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+  batch: {}
+
+exporters:
+  prometheus:
+    endpoint: "{{ endpoint_address }}:{{ observeweaver.network.ports.otelPrometheus }}"
+  debug:
+    verbosity: basic
+
+service:
+  extensions: [health_check]
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: "{{ address }}"
+                port: {{ observeweaver.network.ports.otelMetrics }}
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

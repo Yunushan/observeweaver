@@ -1,0 +1,27 @@
+[Unit]
+Description=Prometheus
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+{% set address = hostvars[inventory_hostname].ansible_host %}
+{% set endpoint_address = '[' ~ address ~ ']' if ':' in address else address %}
+User=prometheus
+Group=prometheus
+Type=simple
+ExecStart=/usr/local/bin/prometheus \
+  --config.file={{ observeweaver_config_root }}/prometheus/prometheus.yml \
+  --storage.tsdb.path={{ observeweaver_data_root }}/prometheus \
+  --storage.tsdb.retention.time={{ observeweaver.retention.metricsDays }}d \
+  --web.listen-address={{ endpoint_address }}:{{ observeweaver.network.ports.prometheus }}
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ observeweaver_data_root }}/prometheus
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

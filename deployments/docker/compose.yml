@@ -1,0 +1,283 @@
+name: observeweaver
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 20m
+    max-file: "5"
+
+x-restart: &default-restart
+  restart: unless-stopped
+
+services:
+  prometheus:
+    image: prom/prometheus:v${PROMETHEUS_VERSION:?PROMETHEUS_VERSION is required}
+    profiles: [prometheus]
+    <<: *default-restart
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+      - --web.enable-lifecycle
+      - --web.listen-address=0.0.0.0:${PROMETHEUS_PORT:-9090}
+    volumes:
+      - "${DOCKER_CONFIG_DIR:?DOCKER_CONFIG_DIR is required}/prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - "${DOCKER_CONFIG_DIR:?DOCKER_CONFIG_DIR is required}/prometheus-rules.yml:/etc/prometheus/rules.yml:ro"
+      - prometheus-data:/prometheus
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:${PROMETHEUS_PORT:-9090}"
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://127.0.0.1:${PROMETHEUS_PORT:-9090}/-/healthy",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  alertmanager:
+    image: prom/alertmanager:v${ALERTMANAGER_VERSION:?ALERTMANAGER_VERSION is required}
+    profiles: [alertmanager]
+    <<: *default-restart
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=0.0.0.0:${ALERTMANAGER_PORT:-9093}
+    volumes:
+      - "${DOCKER_CONFIG_DIR:?DOCKER_CONFIG_DIR is required}/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"
+      - alertmanager-data:/alertmanager
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${ALERTMANAGER_PORT:-9093}:${ALERTMANAGER_PORT:-9093}"
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://127.0.0.1:${ALERTMANAGER_PORT:-9093}/-/healthy",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:?GRAFANA_VERSION is required}
+    profiles: [grafana]
+    <<: *default-restart
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER is required}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_DOMAIN: ${OBSERVEWEAVER_DOMAIN:?OBSERVEWEAVER_DOMAIN is required}
+      GF_SERVER_ROOT_URL: ${OBSERVEWEAVER_SCHEME:-https}://grafana.${OBSERVEWEAVER_DOMAIN}/
+      GF_SERVER_HTTP_PORT: ${GRAFANA_PORT:-3000}
+      GF_DATABASE_TYPE: ${GRAFANA_DATABASE_TYPE:-sqlite3}
+      GF_DATABASE_HOST: ${GRAFANA_DATABASE_HOST:-}
+      GF_DATABASE_NAME: ${GRAFANA_DATABASE_NAME:-grafana}
+      GF_DATABASE_USER: ${GRAFANA_DATABASE_USER:-grafana}
+      GF_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-}
+      GF_METRICS_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - "${DOCKER_CONFIG_DIR:?DOCKER_CONFIG_DIR is required}/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro"
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:${GRAFANA_PORT:-3000}"
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://127.0.0.1:$${GF_SERVER_HTTP_PORT:-3000}/api/health || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:${OTELCOL_VERSION:?OTELCOL_VERSION is required}
+    profiles: [opentelemetry]
+    <<: *default-restart
+    command:
+      - --config=/etc/otelcol-contrib/config.yml
+    volumes:
+      - "${DOCKER_CONFIG_DIR:?DOCKER_CONFIG_DIR is required}/otel-collector.yml:/etc/otelcol-contrib/config.yml:ro"
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${OTLP_GRPC_PORT:-4317}:${OTLP_GRPC_PORT:-4317}"
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${OTLP_HTTP_PORT:-4318}:${OTLP_HTTP_PORT:-4318}"
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${OTEL_HEALTH_PORT:-13133}:${OTEL_HEALTH_PORT:-13133}"
+    networks:
+      - frontend
+      - backend
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  mongodb:
+    image: mongo:${MONGODB_VERSION:?MONGODB_VERSION is required}
+    profiles: [mongodb]
+    <<: *default-restart
+    command: ["mongod", "--bind_ip_all", "--port", "${MONGODB_PORT:-27017}"]
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: graylog
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD:?MONGODB_ROOT_PASSWORD is required}
+      MONGO_INITDB_DATABASE: graylog
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - backend
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --port ${MONGODB_PORT:-27017} --username graylog --password \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval 'db.adminCommand({ ping: 1 })' || exit 1",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  opensearch:
+    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:?OPENSEARCH_VERSION is required}
+    profiles: [opensearch]
+    <<: *default-restart
+    environment:
+      cluster.name: observeweaver
+      node.name: opensearch-standalone
+      discovery.type: single-node
+      http.port: ${OPENSEARCH_PORT:-9200}
+      transport.port: ${OPENSEARCH_TRANSPORT_PORT:-9300}
+      bootstrap.memory_lock: "true"
+      OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms2g -Xmx2g}
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN: "true"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks:
+      - backend
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:${OPENSEARCH_PORT:-9200}/_cluster/health?wait_for_status=yellow >/dev/null || exit 1",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  graylog:
+    image: graylog/graylog:${GRAYLOG_VERSION:?GRAYLOG_VERSION is required}
+    profiles: [graylog]
+    <<: *default-restart
+    environment:
+      GRAYLOG_PASSWORD_SECRET: ${GRAYLOG_PASSWORD_SECRET:?GRAYLOG_PASSWORD_SECRET is required}
+      GRAYLOG_ROOT_PASSWORD_SHA2: ${GRAYLOG_ROOT_PASSWORD_SHA2:?GRAYLOG_ROOT_PASSWORD_SHA2 is required}
+      GRAYLOG_MONGODB_URI: mongodb://graylog:${MONGODB_ROOT_PASSWORD:?MONGODB_ROOT_PASSWORD is required}@mongodb:${MONGODB_PORT:-27017}/graylog?authSource=admin
+      GRAYLOG_ELASTICSEARCH_HOSTS: http://opensearch:${OPENSEARCH_PORT:-9200}
+      GRAYLOG_HTTP_BIND_ADDRESS: 0.0.0.0:${GRAYLOG_HTTP_PORT:-9000}
+      GRAYLOG_HTTP_EXTERNAL_URI: ${OBSERVEWEAVER_SCHEME:-https}://graylog.${OBSERVEWEAVER_DOMAIN:?OBSERVEWEAVER_DOMAIN is required}/
+      GRAYLOG_HTTP_PUBLISH_URI: http://graylog:${GRAYLOG_HTTP_PORT:-9000}/
+      GRAYLOG_MESSAGE_JOURNAL_MAX_AGE: ${GRAYLOG_RETENTION_DAYS:-30}d
+      GRAYLOG_ELASTICSEARCH_REPLICAS: ${GRAYLOG_ELASTICSEARCH_REPLICAS:-0}
+      GRAYLOG_ROTATION_STRATEGY: time
+      GRAYLOG_ELASTICSEARCH_MAX_TIME_PER_INDEX: 1d
+      GRAYLOG_RETENTION_STRATEGY: delete
+      GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES: ${GRAYLOG_RETENTION_DAYS:-30}
+    entrypoint: /usr/bin/tini -- wait-for-it opensearch:${OPENSEARCH_PORT:-9200} -- /docker-entrypoint.sh
+    volumes:
+      - graylog-journal:/usr/share/graylog/data/journal
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${GRAYLOG_HTTP_PORT:-9000}:${GRAYLOG_HTTP_PORT:-9000}"
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${GRAYLOG_GELF_TCP_PORT:-12201}:${GRAYLOG_GELF_TCP_PORT:-12201}/tcp"
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${GRAYLOG_GELF_UDP_PORT:-12201}:${GRAYLOG_GELF_UDP_PORT:-12201}/udp"
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${GRAYLOG_SYSLOG_TCP_PORT:-1514}:${GRAYLOG_SYSLOG_TCP_PORT:-1514}/tcp"
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${GRAYLOG_SYSLOG_UDP_PORT:-1514}:${GRAYLOG_SYSLOG_UDP_PORT:-1514}/udp"
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${GRAYLOG_BEATS_PORT:-5044}:${GRAYLOG_BEATS_PORT:-5044}/tcp"
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:${GRAYLOG_HTTP_PORT:-9000}/api/system/lbstatus >/dev/null || exit 1",
+        ]
+      interval: 20s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  postgresql:
+    image: postgres:${POSTGRES_VERSION:?POSTGRES_VERSION is required}
+    profiles: ["ha-metadata"]
+    <<: *default-restart
+    environment:
+      POSTGRES_DB: grafana
+      POSTGRES_USER: grafana
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgresql-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grafana -d grafana"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
+  mongodb-data:
+  opensearch-data:
+  graylog-journal:
+  postgresql-data:

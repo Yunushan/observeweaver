@@ -1,0 +1,129 @@
+---
+- name: Verify ObserveWeaver services
+  hosts: observeweaver
+  become: true
+  gather_facts: false
+  vars:
+    expected_services:
+      - name: prometheus
+        group: prometheus
+        enabled: "{{ observeweaver.components.prometheus.enabled }}"
+        port: "{{ observeweaver.network.ports.prometheus }}"
+        path: /-/ready
+      - name: alertmanager
+        group: alertmanager
+        enabled: "{{ observeweaver.components.alertmanager.enabled }}"
+        port: "{{ observeweaver.network.ports.alertmanager }}"
+        path: /-/ready
+      - name: grafana-server
+        group: grafana
+        enabled: "{{ observeweaver.components.grafana.enabled }}"
+        port: "{{ observeweaver.network.ports.grafana }}"
+        path: /api/health
+      - name: otelcol-contrib
+        group: opentelemetry
+        enabled: "{{ observeweaver.components.opentelemetry.enabled }}"
+        port: "{{ observeweaver.network.ports.otelHealth }}"
+        path: /
+      - name: graylog-server
+        group: graylog
+        enabled: "{{ observeweaver.components.graylog.enabled }}"
+        port: "{{ observeweaver.network.ports.graylogHttp }}"
+        path: /api/system/lbstatus
+  tasks:
+    - name: Check installed systemd services
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - "{{ item.name }}"
+      register: service_status
+      changed_when: false
+      loop: "{{ expected_services }}"
+      when:
+        - item.enabled | bool
+        - inventory_hostname in groups.get(item.group, [])
+
+    - name: Check local HTTP readiness endpoints
+      ansible.builtin.uri:
+        url: >-
+          http://{{ '[' ~ hostvars[inventory_hostname].ansible_host ~ ']'
+          if ':' in hostvars[inventory_hostname].ansible_host
+          else hostvars[inventory_hostname].ansible_host }}:{{ item.port }}{{ item.path }}
+        method: GET
+        status_code: 200
+      register: endpoint_status
+      retries: 12
+      delay: 5
+      until: endpoint_status.status == 200
+      loop: "{{ expected_services }}"
+      when:
+        - item.enabled | bool
+        - inventory_hostname in groups.get(item.group, [])
+
+    - name: Check MongoDB service
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - mongod
+      register: mongodb_service_status
+      changed_when: false
+      when: inventory_hostname in groups.get('mongodb', [])
+
+    - name: Check authenticated MongoDB readiness
+      ansible.builtin.command:
+        argv:
+          - mongosh
+          - --quiet
+          - --host
+          - "127.0.0.1"
+          - --port
+          - "{{ observeweaver.network.ports.mongodb | string }}"
+          - --username
+          - graylog
+          - --password
+          - >-
+            {{ lookup('ansible.builtin.ini', 'MONGODB_ROOT_PASSWORD',
+            type='properties', file=observeweaver_secret_file) }}
+          - --authenticationDatabase
+          - admin
+          - --eval
+          - "db.adminCommand({ ping: 1 })"
+      register: mongodb_readiness
+      changed_when: false
+      no_log: true
+      when: inventory_hostname in groups.get('mongodb', [])
+
+    - name: Check OpenSearch service
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - opensearch
+      register: opensearch_service_status
+      changed_when: false
+      when: inventory_hostname in groups.get('opensearch', [])
+
+    - name: Check authenticated OpenSearch readiness
+      ansible.builtin.uri:
+        url: >-
+          https://{{ '[' ~ hostvars[inventory_hostname].ansible_host ~ ']'
+          if ':' in hostvars[inventory_hostname].ansible_host
+          else hostvars[inventory_hostname].ansible_host }}:{{
+          observeweaver.network.ports.opensearch }}/_cluster/health
+        url_username: admin
+        url_password: >-
+          {{ lookup('ansible.builtin.ini',
+          'OPENSEARCH_INITIAL_ADMIN_PASSWORD', type='properties',
+          file=observeweaver_secret_file) }}
+        force_basic_auth: true
+        ca_path: /etc/opensearch/observeweaver-root-ca.pem
+        validate_certs: true
+        status_code: 200
+      register: opensearch_readiness
+      retries: 12
+      delay: 5
+      until: opensearch_readiness.status == 200
+      no_log: true
+      when: inventory_hostname in groups.get('opensearch', [])

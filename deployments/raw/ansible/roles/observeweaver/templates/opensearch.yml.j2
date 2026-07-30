@@ -1,0 +1,38 @@
+cluster.name: observeweaver
+node.name: {{ inventory_hostname }}
+network.host: "{{ hostvars[inventory_hostname].ansible_host }}"
+http.port: {{ observeweaver.network.ports.opensearch }}
+transport.port: {{ observeweaver.network.ports.opensearchTransport }}
+path.data: {{ observeweaver_data_root }}/opensearch
+path.logs: /var/log/opensearch
+bootstrap.memory_lock: true
+discovery.seed_hosts:
+{% for host in groups.get('opensearch', []) %}
+  - "{{ host }}:{{ observeweaver.network.ports.opensearchTransport }}"
+{% endfor %}
+cluster.initial_cluster_manager_nodes:
+{% for host in groups.get('opensearch', []) %}
+  - {{ host }}
+{% endfor %}
+node.roles:
+  - cluster_manager
+  - data
+  - ingest
+  - remote_cluster_client
+plugins.security.ssl.http.enabled: true
+plugins.security.ssl.http.pemcert_filepath: observeweaver-node.pem
+plugins.security.ssl.http.pemkey_filepath: observeweaver-node-key.pem
+plugins.security.ssl.http.pemtrustedcas_filepath: observeweaver-root-ca.pem
+plugins.security.ssl.transport.pemcert_filepath: observeweaver-node.pem
+plugins.security.ssl.transport.pemkey_filepath: observeweaver-node-key.pem
+plugins.security.ssl.transport.pemtrustedcas_filepath: observeweaver-root-ca.pem
+plugins.security.ssl.transport.enforce_hostname_verification: true
+plugins.security.ssl.transport.resolve_hostname: true
+plugins.security.nodes_dn:
+{% for host in groups.get('opensearch', []) %}
+  - "CN={{ host }},OU=Nodes,O=ObserveWeaver"
+{% endfor %}
+plugins.security.allow_unsafe_democertificates: false
+plugins.security.allow_default_init_securityindex: true
+plugins.security.authcz.admin_dn:
+  - CN=kirk,OU=client,O=client,L=test,C=de

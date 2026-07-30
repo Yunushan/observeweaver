@@ -1,0 +1,108 @@
+---
+- name: Select MongoDB service identity
+  ansible.builtin.set_fact:
+    observeweaver_mongodb_service_user: >-
+      {{ 'mongodb' if ansible_os_family == 'Debian' else 'mongod' }}
+    observeweaver_mongodb_service_group: >-
+      {{ 'mongodb' if ansible_os_family == 'Debian' else 'mongod' }}
+    observeweaver_mongodb_data_path: >-
+      {{ observeweaver_data_root ~ '/mongodb'
+      if ansible_os_family == 'Debian' else '/var/lib/mongo' }}
+
+- name: Install MongoDB repository key on Debian family
+  ansible.builtin.get_url:
+    url: "https://www.mongodb.org/static/pgp/server-{{ observeweaver_mongodb_repository_major }}.asc"
+    dest: "/usr/share/keyrings/mongodb-server-{{ observeweaver_mongodb_repository_major }}.asc"
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_os_family == 'Debian'
+
+- name: Configure MongoDB repository on Debian family
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-{{
+      observeweaver_mongodb_repository_major }}.asc]
+      https://repo.mongodb.org/apt/ubuntu {{ ansible_distribution_release }}/mongodb-org/{{
+      observeweaver_mongodb_repository_major }} multiverse
+    filename: mongodb-org
+    state: present
+    update_cache: true
+  when: ansible_os_family == 'Debian'
+
+- name: Configure MongoDB repository on Red Hat family
+  ansible.builtin.yum_repository:
+    name: "mongodb-org-{{ observeweaver_mongodb_repository_major }}"
+    description: MongoDB Repository
+    baseurl: >-
+      https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/{{
+      observeweaver_mongodb_repository_major }}/x86_64/
+    enabled: true
+    gpgcheck: true
+    gpgkey: "https://www.mongodb.org/static/pgp/server-{{ observeweaver_mongodb_repository_major }}.asc"
+  when: ansible_os_family == 'RedHat'
+
+- name: Install pinned MongoDB on Debian family
+  ansible.builtin.apt:
+    name: "mongodb-org={{ observeweaver.dependencies.mongodb.version }}"
+    state: present
+    allow_downgrade: true
+  when: ansible_os_family == 'Debian'
+
+- name: Install pinned MongoDB on Red Hat family
+  ansible.builtin.dnf:
+    name: "mongodb-org-{{ observeweaver.dependencies.mongodb.version }}"
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Create MongoDB data directory
+  ansible.builtin.file:
+    path: "{{ observeweaver_mongodb_data_path }}"
+    state: directory
+    owner: "{{ observeweaver_mongodb_service_user }}"
+    group: "{{ observeweaver_mongodb_service_group }}"
+    mode: "0750"
+
+- name: Permit the configured MongoDB port through SELinux
+  community.general.seport:
+    ports: "{{ observeweaver.network.ports.mongodb }}"
+    proto: tcp
+    setype: mongod_port_t
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Write MongoDB replica-set key
+  ansible.builtin.copy:
+    dest: /etc/mongodb-observeweaver-keyfile
+    owner: "{{ observeweaver_mongodb_service_user }}"
+    group: "{{ observeweaver_mongodb_service_group }}"
+    mode: "0400"
+    content: >-
+      {{ lookup('ansible.builtin.ini', 'MONGODB_REPLICA_SET_KEY',
+      type='properties', file=observeweaver_secret_file) }}
+  no_log: true
+  notify: Restart mongodb
+
+- name: Configure MongoDB
+  ansible.builtin.template:
+    src: mongod.conf.j2
+    dest: /etc/mongod.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart mongodb
+
+- name: Apply MongoDB configuration before readiness checks
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable MongoDB
+  ansible.builtin.systemd_service:
+    name: mongod
+    enabled: true
+    state: started
+
+- name: Wait for MongoDB port
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ observeweaver.network.ports.mongodb }}"
+    timeout: 120

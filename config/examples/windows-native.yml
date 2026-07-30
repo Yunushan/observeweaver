@@ -1,0 +1,113 @@
+apiVersion: observeweaver.io/v1alpha1
+kind: ObserveWeaver
+
+metadata:
+  name: observeweaver-windows
+  environment: lab
+
+deployment:
+  engine: raw
+  mode: standalone
+  namespace: observeweaver
+
+platform:
+  family: windows
+  distribution: windows-server
+  version: "2025"
+  execution: native
+
+nodes:
+  - name: obs-win-01
+    address: 192.0.2.21
+    roles: [control, metrics, telemetry, data]
+
+network:
+  domain: observability.example.com
+  bindAddress: 0.0.0.0
+  vip: null
+  ingress:
+    enabled: false
+    className: ""
+  ports:
+    prometheus: 9090
+    alertmanager: 9093
+    alertmanagerCluster: 9094
+    grafana: 3000
+    otlpGrpc: 4317
+    otlpHttp: 4318
+    otelHealth: 13133
+    otelMetrics: 8888
+    otelPrometheus: 8889
+    graylogHttp: 9000
+    graylogDataNode: 8999
+    graylogBeats: 5044
+    graylogGelfTcp: 12201
+    graylogGelfUdp: 12201
+    graylogSyslogTcp: 1514
+    graylogSyslogUdp: 1514
+    opensearch: 9200
+    opensearchTransport: 9300
+    mongodb: 27017
+
+tls:
+  mode: disabled
+  provided:
+    certificateFile: null
+    privateKeyFile: null
+  certManager:
+    clusterIssuer: null
+
+storage:
+  className: windows-local
+  shared: false
+  sizes:
+    prometheus: 100Gi
+    alertmanager: 5Gi
+    grafana: 10Gi
+    graylogJournal: 50Gi
+    opensearch: 300Gi
+    mongodb: 30Gi
+    postgresql: 20Gi
+
+retention:
+  metricsDays: 30
+  logsDays: 30
+
+security:
+  allowPlaintext: true
+  secretFile: secrets/observeweaver.env
+  kubernetesSecretName: observeweaver-secrets
+
+components:
+  prometheus:
+    enabled: true
+    version: "3.13.1"
+    replicas: 1
+  alertmanager:
+    enabled: true
+    version: "0.33.1"
+    replicas: 1
+  grafana:
+    enabled: true
+    version: "13.1.1"
+    replicas: 1
+  opentelemetry:
+    enabled: true
+    version: "0.157.0"
+    replicas: 1
+  graylog:
+    enabled: false
+    version: "7.1.6"
+    replicas: 1
+  opensearch:
+    enabled: true
+    version: "2.19.5"
+    replicas: 1
+    javaOpts: -Xms2g -Xmx2g
+
+dependencies:
+  mongodb:
+    version: "8.0.28"
+  postgresql:
+    version: "17"
+    external: false

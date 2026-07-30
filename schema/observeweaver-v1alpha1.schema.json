@@ -1,0 +1,396 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observeweaver.example/schema/observeweaver-v1alpha1.schema.json",
+  "title": "ObserveWeaver",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "deployment",
+    "platform",
+    "nodes",
+    "network",
+    "tls",
+    "storage",
+    "retention",
+    "security",
+    "components",
+    "dependencies"
+  ],
+  "properties": {
+    "apiVersion": {
+      "const": "observeweaver.io/v1alpha1"
+    },
+    "kind": {
+      "const": "ObserveWeaver"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "environment"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$"
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["lab", "development", "staging", "production"]
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine", "mode", "namespace"],
+      "properties": {
+        "engine": {
+          "enum": ["raw", "docker", "k3s", "rke2"]
+        },
+        "mode": {
+          "enum": ["standalone", "cluster"]
+        },
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+        },
+        "kubernetesVersion": {
+          "type": "string"
+        },
+        "acceptBetaGraylogChart": {
+          "type": "boolean"
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "distribution", "version", "execution"],
+      "properties": {
+        "family": {
+          "enum": ["linux", "windows"]
+        },
+        "distribution": {
+          "enum": [
+            "ubuntu",
+            "rocky",
+            "almalinux",
+            "rhel",
+            "windows",
+            "windows-server"
+          ]
+        },
+        "version": {
+          "enum": ["8", "9", "10", "11", "22.04", "24.04", "2019", "2022", "2025"]
+        },
+        "execution": {
+          "enum": ["native", "wsl2", "linux-vm", "remote-linux"]
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "address", "roles"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+          },
+          "address": {
+            "type": "string",
+            "anyOf": [
+              { "format": "ipv4" },
+              { "format": "ipv6" }
+            ]
+          },
+          "roles": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["control", "metrics", "telemetry", "logs", "data", "ingress"]
+            }
+          }
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "bindAddress", "ingress", "ports"],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bindAddress": {
+          "type": "string",
+          "anyOf": [
+            { "format": "ipv4" },
+            { "format": "ipv6" }
+          ]
+        },
+        "vip": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "string", "format": "ipv4" },
+            { "type": "string", "format": "ipv6" }
+          ]
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "className"],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "className": {
+              "type": "string"
+            }
+          }
+        },
+        "ports": {
+          "type": "object",
+          "required": [
+            "prometheus",
+            "alertmanager",
+            "alertmanagerCluster",
+            "grafana",
+            "otlpGrpc",
+            "otlpHttp",
+            "otelHealth",
+            "otelMetrics",
+            "otelPrometheus",
+            "graylogHttp",
+            "graylogDataNode",
+            "graylogBeats",
+            "graylogGelfTcp",
+            "graylogGelfUdp",
+            "graylogSyslogTcp",
+            "graylogSyslogUdp",
+            "opensearch",
+            "opensearchTransport",
+            "mongodb"
+          ],
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        }
+      }
+    },
+    "tls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "enum": ["provided", "cert-manager", "disabled"]
+        },
+        "provided": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["certificateFile", "privateKeyFile"],
+          "properties": {
+            "certificateFile": {
+              "type": ["string", "null"]
+            },
+            "privateKeyFile": {
+              "type": ["string", "null"]
+            }
+          }
+        },
+        "certManager": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["clusterIssuer"],
+          "properties": {
+            "clusterIssuer": {
+              "type": ["string", "null"]
+            }
+          }
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["className", "shared", "sizes"],
+      "properties": {
+        "className": {
+          "type": ["string", "null"]
+        },
+        "shared": {
+          "type": "boolean"
+        },
+        "sizes": {
+          "type": "object",
+          "required": [
+            "prometheus",
+            "alertmanager",
+            "grafana",
+            "graylogJournal",
+            "opensearch",
+            "mongodb",
+            "postgresql"
+          ],
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*(Mi|Gi|Ti)$"
+          }
+        }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "required": ["metricsDays", "logsDays"],
+      "additionalProperties": false,
+      "properties": {
+        "metricsDays": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "logsDays": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowPlaintext", "secretFile", "kubernetesSecretName"],
+      "properties": {
+        "allowPlaintext": {
+          "type": "boolean"
+        },
+        "secretFile": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kubernetesSecretName": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "required": [
+        "prometheus",
+        "alertmanager",
+        "grafana",
+        "opentelemetry",
+        "graylog",
+        "opensearch"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "prometheus": {
+          "$ref": "#/$defs/component"
+        },
+        "alertmanager": {
+          "$ref": "#/$defs/component"
+        },
+        "grafana": {
+          "$ref": "#/$defs/component"
+        },
+        "opentelemetry": {
+          "$ref": "#/$defs/component"
+        },
+        "graylog": {
+          "$ref": "#/$defs/component"
+        },
+        "opensearch": {
+          "$ref": "#/$defs/opensearchComponent"
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mongodb", "postgresql"],
+      "properties": {
+        "mongodb": {
+          "$ref": "#/$defs/dependency"
+        },
+        "postgresql": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/dependency"
+            },
+            {
+              "type": "object",
+              "required": ["external"],
+              "properties": {
+                "external": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "version", "replicas"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "opensearchComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "version", "replicas", "javaOpts"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "javaOpts": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "required": ["version"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+        }
+      }
+    }
+  }
+}

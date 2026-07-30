@@ -1,0 +1,27 @@
+{% set address = hostvars[inventory_hostname].ansible_host %}
+{% set endpoint_address = '[' ~ address ~ ']' if ':' in address else address %}
+{% if observeweaver.deployment.mode == 'cluster' %}
+leader_election_mode = automatic
+{% else %}
+is_leader = true
+{% endif %}
+node_id_file = /etc/graylog/server/node-id
+password_secret = {{ lookup('ansible.builtin.ini', 'GRAYLOG_PASSWORD_SECRET', type='properties', file=observeweaver_secret_file) }}
+root_password_sha2 = {{ lookup('ansible.builtin.ini', 'GRAYLOG_ROOT_PASSWORD_SHA2', type='properties', file=observeweaver_secret_file) }}
+
+http_bind_address = {{ endpoint_address }}:{{ observeweaver.network.ports.graylogHttp }}
+http_publish_uri = http://{{ endpoint_address }}:{{ observeweaver.network.ports.graylogHttp }}/
+http_external_uri = {{ 'http' if observeweaver.tls.mode == 'disabled' else 'https' }}://graylog.{{ observeweaver.network.domain }}/
+
+mongodb_uri = mongodb://graylog:{{ lookup('ansible.builtin.ini', 'MONGODB_ROOT_PASSWORD', type='properties', file=observeweaver_secret_file) }}@{% for host in groups.get('mongodb', []) %}{{ host }}:{{ observeweaver.network.ports.mongodb }}{{ ',' if not loop.last else '' }}{% endfor %}/graylog?authSource=admin{% if observeweaver.deployment.mode == 'cluster' %}&replicaSet=observeweaver{% endif %}
+
+elasticsearch_hosts = {% for host in groups.get('opensearch', []) %}https://admin:{{ lookup('ansible.builtin.ini', 'OPENSEARCH_INITIAL_ADMIN_PASSWORD', type='properties', file=observeweaver_secret_file) }}@{{ host }}:{{ observeweaver.network.ports.opensearch }}{{ ',' if not loop.last else '' }}{% endfor %}
+
+message_journal_enabled = true
+message_journal_dir = {{ observeweaver_data_root }}/graylog-journal
+message_journal_max_age = {{ observeweaver.retention.logsDays }}d
+rotation_strategy = time
+elasticsearch_max_time_per_index = 1d
+retention_strategy = delete
+elasticsearch_max_number_of_indices = {{ observeweaver.retention.logsDays }}
+elasticsearch_replicas = {{ 1 if observeweaver.deployment.mode == 'cluster' else 0 }}

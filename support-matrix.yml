@@ -1,0 +1,79 @@
+schemaVersion: 1
+updated: "2026-07-30"
+
+tiers:
+  1: Maintained path with automated configuration and syntax checks
+  2: Compatible path requiring environment-specific runtime validation
+  3: Preview or client-only path
+
+platforms:
+  - platform: ubuntu-22.04
+    native: 1
+    docker: 1
+    k3s: 1
+    rke2: 2
+  - platform: ubuntu-24.04
+    native: 1
+    docker: 1
+    k3s: 1
+    rke2: 2
+  - platform: rocky-8
+    native: unsupported
+    docker: 2
+    k3s: 2
+    rke2: 2
+  - platform: rocky-9
+    native: 2
+    docker: 1
+    k3s: 2
+    rke2: 2
+  - platform: almalinux-8
+    native: unsupported
+    docker: 2
+    k3s: 2
+    rke2: 2
+  - platform: almalinux-9
+    native: 2
+    docker: 1
+    k3s: 2
+    rke2: 2
+  - platform: rhel-8
+    native: unsupported
+    docker: 2
+    k3s: 2
+    rke2: 2
+  - platform: rhel-9
+    native: 2
+    docker: 2
+    k3s: 2
+    rke2: 2
+  - platform: windows-10
+    native: 2
+    dockerLinuxVm: 2
+    k3sServer: unsupported
+    rke2Server: unsupported
+    rke2Agent: 3
+  - platform: windows-11
+    native: 2
+    dockerLinuxVm: 2
+    k3sServer: unsupported
+    rke2Server: unsupported
+    rke2Agent: 3
+  - platform: windows-server-2019
+    native: 2
+    dockerLinuxVm: 2
+    k3sServer: unsupported
+    rke2Server: unsupported
+    rke2Agent: 3
+  - platform: windows-server-2022
+    native: 2
+    dockerLinuxVm: 2
+    k3sServer: unsupported
+    rke2Server: unsupported
+    rke2Agent: 3
+  - platform: windows-server-2025
+    native: 2
+    dockerLinuxVm: 2
+    k3sServer: unsupported
+    rke2Server: unsupported
+    rke2Agent: 3
