@@ -25,8 +25,8 @@
             observeweaver.platform.version)
         fail_msg: >-
           Target facts must match the canonical platform exactly. Full native
-          server installation is supported on x86_64 Ubuntu 22.04/24.04 and
-          Enterprise Linux 9. Use deployments/raw/windows for the
+          server installation is supported on x86_64 Ubuntu 22.04/24.04/26.04
+          and Enterprise Linux 9/10. Use deployments/raw/windows for the
           Windows-supported subset.
 
     - name: Validate secret file exists on controller

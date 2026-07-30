@@ -11,7 +11,7 @@ x-restart: &default-restart
 
 services:
   prometheus:
-    image: prom/prometheus:v${PROMETHEUS_VERSION:?PROMETHEUS_VERSION is required}
+    image: ${PROMETHEUS_IMAGE:?PROMETHEUS_IMAGE is required}
     profiles: [prometheus]
     <<: *default-restart
     command:
@@ -44,7 +44,7 @@ services:
     logging: *default-logging
 
   alertmanager:
-    image: prom/alertmanager:v${ALERTMANAGER_VERSION:?ALERTMANAGER_VERSION is required}
+    image: ${ALERTMANAGER_IMAGE:?ALERTMANAGER_IMAGE is required}
     profiles: [alertmanager]
     <<: *default-restart
     command:
@@ -74,7 +74,7 @@ services:
     logging: *default-logging
 
   grafana:
-    image: grafana/grafana:${GRAFANA_VERSION:?GRAFANA_VERSION is required}
+    image: ${GRAFANA_IMAGE:?GRAFANA_IMAGE is required}
     profiles: [grafana]
     <<: *default-restart
     environment:
@@ -113,7 +113,7 @@ services:
     logging: *default-logging
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:${OTELCOL_VERSION:?OTELCOL_VERSION is required}
+    image: ${OTELCOL_IMAGE:?OTELCOL_IMAGE is required}
     profiles: [opentelemetry]
     <<: *default-restart
     command:
@@ -131,8 +131,94 @@ services:
       - no-new-privileges:true
     logging: *default-logging
 
+  zabbix-postgresql:
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
+    profiles: [zabbix]
+    <<: *default-restart
+    environment:
+      POSTGRES_DB: zabbix
+      POSTGRES_USER: ${ZABBIX_DATABASE_USER:-zabbix}
+      POSTGRES_PASSWORD: ${ZABBIX_DATABASE_PASSWORD:?ZABBIX_DATABASE_PASSWORD is required}
+    volumes:
+      - zabbix-postgresql-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zabbix -d zabbix"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  zabbix-server:
+    image: ${ZABBIX_SERVER_IMAGE:?ZABBIX_SERVER_IMAGE is required}
+    profiles: [zabbix]
+    <<: *default-restart
+    environment:
+      DB_SERVER_HOST: zabbix-postgresql
+      DB_SERVER_PORT: ${ZABBIX_DATABASE_PORT:-5432}
+      POSTGRES_USER: ${ZABBIX_DATABASE_USER:-zabbix}
+      POSTGRES_PASSWORD: ${ZABBIX_DATABASE_PASSWORD:?ZABBIX_DATABASE_PASSWORD is required}
+      POSTGRES_DB: ${ZABBIX_DATABASE_NAME:-zabbix}
+      ZBX_LISTENPORT: ${ZABBIX_SERVER_PORT:-10051}
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${ZABBIX_SERVER_PORT:-10051}:${ZABBIX_SERVER_PORT:-10051}"
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      zabbix-postgresql:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "nc -z 127.0.0.1 ${ZABBIX_SERVER_PORT:-10051} || exit 1",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  zabbix-web:
+    image: ${ZABBIX_WEB_IMAGE:?ZABBIX_WEB_IMAGE is required}
+    profiles: [zabbix]
+    <<: *default-restart
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+      ZBX_SERVER_PORT: ${ZABBIX_SERVER_PORT:-10051}
+      DB_SERVER_HOST: zabbix-postgresql
+      DB_SERVER_PORT: ${ZABBIX_DATABASE_PORT:-5432}
+      POSTGRES_USER: ${ZABBIX_DATABASE_USER:-zabbix}
+      POSTGRES_PASSWORD: ${ZABBIX_DATABASE_PASSWORD:?ZABBIX_DATABASE_PASSWORD is required}
+      POSTGRES_DB: ${ZABBIX_DATABASE_NAME:-zabbix}
+      PHP_TZ: UTC
+      ZBX_SERVER_NAME: ObserveWeaver Zabbix
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${ZABBIX_WEB_PORT:-8080}:8080"
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      zabbix-server:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
   mongodb:
-    image: mongo:${MONGODB_VERSION:?MONGODB_VERSION is required}
+    image: ${MONGODB_IMAGE:?MONGODB_IMAGE is required}
     profiles: [mongodb]
     <<: *default-restart
     command: ["mongod", "--bind_ip_all", "--port", "${MONGODB_PORT:-27017}"]
@@ -159,7 +245,7 @@ services:
     logging: *default-logging
 
   opensearch:
-    image: opensearchproject/opensearch:${OPENSEARCH_VERSION:?OPENSEARCH_VERSION is required}
+    image: ${OPENSEARCH_IMAGE:?OPENSEARCH_IMAGE is required}
     profiles: [opensearch]
     <<: *default-restart
     environment:
@@ -198,7 +284,7 @@ services:
     logging: *default-logging
 
   graylog:
-    image: graylog/graylog:${GRAYLOG_VERSION:?GRAYLOG_VERSION is required}
+    image: ${GRAYLOG_IMAGE:?GRAYLOG_IMAGE is required}
     profiles: [graylog]
     <<: *default-restart
     environment:
@@ -248,7 +334,7 @@ services:
     logging: *default-logging
 
   postgresql:
-    image: postgres:${POSTGRES_VERSION:?POSTGRES_VERSION is required}
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
     profiles: ["ha-metadata"]
     <<: *default-restart
     environment:
@@ -281,3 +367,4 @@ volumes:
   opensearch-data:
   graylog-journal:
   postgresql-data:
+  zabbix-postgresql-data:

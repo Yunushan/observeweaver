@@ -44,6 +44,8 @@ network:
     otelHealth: 13133
     otelMetrics: 8888
     otelPrometheus: 8889
+    zabbixServer: 10051
+    zabbixWeb: 8080
     graylogHttp: 9000
     graylogDataNode: 8999
     graylogBeats: 5044
@@ -75,6 +77,7 @@ storage:
     opensearch: 1Ti
     mongodb: 50Gi
     postgresql: 50Gi
+    zabbixPostgresql: 50Gi
 
 retention:
   metricsDays: 30
@@ -102,6 +105,10 @@ components:
     enabled: true
     version: "0.157.0"
     replicas: 3
+  zabbix:
+    enabled: true
+    version: "7.0.28"
+    replicas: 3
   graylog:
     enabled: true
     version: "7.1.6"
@@ -116,5 +123,8 @@ dependencies:
   mongodb:
     version: "8.0.28"
   postgresql:
+    version: "17"
+    external: true
+  zabbixPostgresql:
     version: "17"
     external: true

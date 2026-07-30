@@ -75,7 +75,8 @@ require_secret_value() {
 }
 
 preflight_secrets() {
-  local engine grafana_enabled grafana_replicas mode secret_path
+  local engine grafana_enabled grafana_replicas mode secret_path zabbix_enabled
+  local zabbix_external_database zabbix_replicas
   secret_path="$(secret_file_path)"
   if [[ ! -f "${secret_path}" ]]; then
     printf 'ERROR: secret file not found: %s. Run the secrets command first.\n' \
@@ -86,6 +87,9 @@ preflight_secrets() {
   mode="$(config_value deployment.mode)"
   grafana_enabled="$(config_value components.grafana.enabled)"
   grafana_replicas="$(config_value components.grafana.replicas)"
+  zabbix_enabled="$(config_value components.zabbix.enabled)"
+  zabbix_replicas="$(config_value components.zabbix.replicas)"
+  zabbix_external_database="$(config_value dependencies.zabbixPostgresql.external)"
   if [[ "${grafana_enabled}" == "true" ]] && {
     (( grafana_replicas > 1 )) || [[
       "${engine}" == "docker" &&
@@ -96,6 +100,16 @@ preflight_secrets() {
     require_secret_value GRAFANA_DATABASE_NAME "${secret_path}"
     require_secret_value GRAFANA_DATABASE_USER "${secret_path}"
     require_secret_value POSTGRES_PASSWORD "${secret_path}"
+  fi
+  if [[ "${zabbix_enabled}" == "true" && "${zabbix_external_database}" == "true" ]] && {
+    [[ "${engine}" == "raw" ]] ||
+    [[ "${mode}" == "cluster" ]] && (( zabbix_replicas > 1 ))
+  }; then
+    require_secret_value ZABBIX_DATABASE_HOST "${secret_path}"
+    require_secret_value ZABBIX_DATABASE_PORT "${secret_path}"
+    require_secret_value ZABBIX_DATABASE_USER "${secret_path}"
+    require_secret_value ZABBIX_DATABASE_PASSWORD "${secret_path}"
+    require_secret_value ZABBIX_DATABASE_NAME "${secret_path}"
   fi
 }
 

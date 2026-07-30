@@ -84,6 +84,7 @@ roles = {
     "alertmanager": "metrics",
     "grafana": "metrics",
     "opentelemetry": "telemetry",
+    "zabbix": "metrics",
     "graylog": "logs",
     "opensearch": "data",
 }
@@ -142,6 +143,12 @@ if [[
   checks[otel-collector]="http://${bind_address}:$(read_config network.ports.otelHealth)/"
 fi
 if [[
+  "$(read_config components.zabbix.enabled)" == "True" &&
+  "$(component_is_local zabbix)" == "True"
+]]; then
+  checks[zabbix-web]="http://${bind_address}:$(read_config network.ports.zabbixWeb)/"
+fi
+if [[
   "$(read_config components.graylog.enabled)" == "True" &&
   "$(component_is_local graylog)" == "True"
 ]]; then
@@ -198,4 +205,27 @@ for component in "${!checks[@]}"; do
     status=1
   fi
 done
+
+if [[
+  "$(read_config components.zabbix.enabled)" == "True" &&
+  "$(component_is_local zabbix)" == "True"
+]]; then
+  zabbix_host="${bind_address#[}"
+  zabbix_host="${zabbix_host%]}"
+  zabbix_port="$(read_config network.ports.zabbixServer)"
+  if "${PYTHON_BIN}" - "${zabbix_host}" "${zabbix_port}" <<'PY'
+import socket
+import sys
+
+with socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=10):
+    pass
+PY
+  then
+    printf 'PASS  zabbix-server\n'
+  else
+    printf 'FAIL  zabbix-server (%s:%s)\n' \
+      "${zabbix_host}" "${zabbix_port}" >&2
+    status=1
+  fi
+fi
 exit "${status}"

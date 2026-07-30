@@ -7,6 +7,10 @@ on an internal Docker network and are not published. Run it through
 `scripts/observeweaver.sh` so generated values and secrets are loaded
 consistently.
 
+Zabbix 7.0.28 LTS runs as a Zabbix Server, Nginx web interface, and dedicated
+PostgreSQL service when the `zabbix` profile is enabled. Its web UI is exposed
+on port 8080 and its server endpoint on port 10051 by default.
+
 ## Multi-host cluster (beta)
 
 Docker Compose does not schedule across hosts. ObserveWeaver therefore renders
@@ -42,3 +46,9 @@ endpoints. Compose cannot automatically reschedule a failed service to another
 host, so this path is beta. Use raw Linux with its generated per-node
 certificates or K3s/RKE2 when authenticated east-west OpenSearch traffic is
 required.
+
+Zabbix Server HA is scheduled on the metrics nodes. Before deployment, set
+`ZABBIX_DATABASE_HOST`, `ZABBIX_DATABASE_PORT`, `ZABBIX_DATABASE_USER`,
+`ZABBIX_DATABASE_PASSWORD`, and `ZABBIX_DATABASE_NAME` in the protected secret
+file to a resilient external PostgreSQL service. The database must provide its
+own failover; Compose cannot reschedule a failed service to another host.

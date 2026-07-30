@@ -44,6 +44,8 @@ For a stronger production design:
 7. Restore the node and confirm shards/replicas converge.
 8. Restore from an OpenSearch snapshot and MongoDB backup into an isolated
    environment.
+9. Fail over the external Grafana and Zabbix PostgreSQL services, then confirm
+   dashboards and Zabbix Server HA nodes reconnect without data corruption.
 
 Do not call a deployment HA until these tests pass with the chosen storage and
 load balancer.

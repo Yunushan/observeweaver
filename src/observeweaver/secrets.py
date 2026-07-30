@@ -16,6 +16,11 @@ SECRET_KEYS = (
     "MONGODB_ROOT_PASSWORD",
     "MONGODB_REPLICA_SET_KEY",
     "POSTGRES_PASSWORD",
+    "ZABBIX_DATABASE_HOST",
+    "ZABBIX_DATABASE_PORT",
+    "ZABBIX_DATABASE_USER",
+    "ZABBIX_DATABASE_PASSWORD",
+    "ZABBIX_DATABASE_NAME",
 )
 
 
@@ -42,6 +47,10 @@ def generate_secret_values() -> dict[str, str]:
         "GRAFANA_DATABASE_NAME": "grafana",
         "GRAFANA_DATABASE_USER": "grafana",
         "GRAYLOG_PASSWORD_SECRET": secrets.token_hex(48),
+        # Graylog requires this exact SHA-256 value for root_password_sha2.
+        # The accompanying 96-hex-character password_secret remains the pepper
+        # for Graylog's stored user credentials; this digest is not used as a
+        # general password-storage primitive by ObserveWeaver.
         "GRAYLOG_ROOT_PASSWORD_SHA2": hashlib.sha256(
             graylog_admin_password.encode("utf-8")
         ).hexdigest(),
@@ -51,6 +60,13 @@ def generate_secret_values() -> dict[str, str]:
         # Hex stays inside that alphabet and avoids YAML/URI punctuation.
         "MONGODB_REPLICA_SET_KEY": secrets.token_hex(384),
         "POSTGRES_PASSWORD": _password(),
+        # Leave the host empty for embedded databases. Cluster HA profiles require
+        # the operator to set it to a resilient external PostgreSQL endpoint.
+        "ZABBIX_DATABASE_HOST": "",
+        "ZABBIX_DATABASE_PORT": "5432",
+        "ZABBIX_DATABASE_USER": "zabbix",
+        "ZABBIX_DATABASE_PASSWORD": _password(),
+        "ZABBIX_DATABASE_NAME": "zabbix",
         "GRAYLOG_INITIAL_ADMIN_PASSWORD": graylog_admin_password,
     }
 

@@ -18,6 +18,16 @@
     name: grafana-server
     state: restarted
 
+- name: Restart zabbix-server
+  ansible.builtin.systemd_service:
+    name: zabbix-server
+    state: restarted
+
+- name: Restart zabbix-php-fpm
+  ansible.builtin.systemd_service:
+    name: "{{ observeweaver_zabbix_php_fpm_service }}"
+    state: restarted
+
 - name: Restart otel
   ansible.builtin.systemd_service:
     name: otelcol-contrib

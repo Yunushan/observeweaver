@@ -12,7 +12,8 @@ telemetry, log, and data services.
 - SSH access with sudo on every Linux target
 - synchronized DNS/time and explicit firewall rules
 
-Enterprise Linux 9 is supported for raw installs. Enterprise Linux 8 remains
+Ubuntu 22.04, 24.04, and 26.04 plus Enterprise Linux 9 and 10 (Rocky,
+AlmaLinux, or RHEL) are supported for raw installs. Enterprise Linux 8 remains
 supported through Docker/K3s/RKE2, but raw installation is rejected because
 its system DNF Python bindings are incompatible with maintained Ansible Core.
 
@@ -39,6 +40,11 @@ CONFIG_FILE=config/examples/raw-cluster.yml scripts/observeweaver.sh deploy --ye
 - Supply a load balancer/VIP implementation. ObserveWeaver does not guess
   interface names, VRRP IDs, or corporate routing policy.
 - Configure an external HA PostgreSQL endpoint for Grafana replicas.
+- Configure an external PostgreSQL endpoint for Zabbix, then set
+  `ZABBIX_DATABASE_HOST`, `ZABBIX_DATABASE_PORT`, `ZABBIX_DATABASE_USER`,
+  `ZABBIX_DATABASE_PASSWORD`, and `ZABBIX_DATABASE_NAME` in the protected
+  secret file. Multiple Zabbix Server nodes use this same database for native
+  Zabbix HA; the database itself must provide its own failover.
 - Back up `/etc/opensearch/observeweaver-ca` from the first OpenSearch member.
   The installer issues per-node SAN certificates and makes Graylog trust that
   CA; replace it with a managed corporate CA only through a planned rotation.

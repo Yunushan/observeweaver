@@ -84,9 +84,34 @@ jobs:
             deployments config; then
             exit 1
           fi
+          if grep -R --line-number -E '^[[:space:]]*image:.*\$\{[A-Z_]+_VERSION' \
+            deployments/docker; then
+            printf 'Docker Compose image references must use immutable *_IMAGE locks.\n' >&2
+            exit 1
+          fi
           python - <<'PY'
           import pathlib
           import re
+
+          stable = pathlib.Path("versions/stable.yml").read_text()
+          image_locks = re.findall(
+              r'^  [A-Za-z][A-Za-z0-9]*: "[^"@]+@sha256:[0-9a-f]{64}"$',
+              stable,
+              flags=re.MULTILINE,
+          )
+          if len(image_locks) != 10:
+              raise SystemExit("Expected exactly ten immutable Docker image locks.")
+
+          kubernetes_locks = pathlib.Path(
+              "versions/kubernetes-images.lock.yml"
+          ).read_text()
+          kubernetes_images = re.findall(
+              r'^  "[^"@]+:[^"]+": "[^"@]+@sha256:[0-9a-f]{64}"$',
+              kubernetes_locks,
+              flags=re.MULTILINE,
+          )
+          if len(kubernetes_images) != 23:
+              raise SystemExit("Expected exactly 23 immutable Kubernetes image locks.")
 
           bad = []
           for path in pathlib.Path(".github/workflows").glob("*.y*ml"):
@@ -108,3 +133,15 @@ jobs:
             printf 'Tracked secret-like file detected.\n' >&2
             exit 1
           fi
+
+  required:
+    name: Required security checks
+    if: always()
+    needs: [trivy, codeql, pin-policy]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every security job
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: test "${RESULTS}" = "success success success"
