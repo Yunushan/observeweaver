@@ -8,7 +8,7 @@ import re
 import sysconfig
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -24,6 +24,7 @@ COMPONENTS = {
     "alertmanager",
     "grafana",
     "opentelemetry",
+    "zabbix",
     "graylog",
     "opensearch",
 }
@@ -37,6 +38,8 @@ REQUIRED_PORTS = {
     "otelHealth",
     "otelMetrics",
     "otelPrometheus",
+    "zabbixServer",
+    "zabbixWeb",
     "graylogHttp",
     "graylogDataNode",
     "graylogBeats",
@@ -65,12 +68,13 @@ REQUIRED_STORAGE_SIZES = {
     "opensearch",
     "mongodb",
     "postgresql",
+    "zabbixPostgresql",
 }
 SUPPORTED_PLATFORM_VERSIONS = {
-    "ubuntu": {"22.04", "24.04"},
-    "rocky": {"8", "9"},
-    "almalinux": {"8", "9"},
-    "rhel": {"8", "9"},
+    "ubuntu": {"22.04", "24.04", "26.04"},
+    "rocky": {"8", "9", "10"},
+    "almalinux": {"8", "9", "10"},
+    "rhel": {"8", "9", "10"},
     "windows": {"10", "11"},
     "windows-server": {"2019", "2022", "2025"},
 }
@@ -79,6 +83,7 @@ TESTED_COMPONENT_VERSIONS = {
     "alertmanager": "0.33.1",
     "grafana": "13.1.1",
     "opentelemetry": "0.157.0",
+    "zabbix": "7.0.28",
     "graylog": "7.1.6",
     "opensearch": "2.19.5",
 }
@@ -125,7 +130,7 @@ def _get(config: dict[str, Any], path: str, default: Any = None) -> Any:
     return current
 
 
-def _is_ip(value: Any) -> bool:
+def _is_ip(value: Any) -> TypeGuard[str]:
     if not isinstance(value, str) or not value:
         return False
     try:
@@ -323,6 +328,7 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
             "alertmanager": "metrics",
             "grafana": "metrics",
             "opentelemetry": "telemetry",
+            "zabbix": "metrics",
             "graylog": "logs",
             "opensearch": "data",
         }
@@ -360,7 +366,7 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
     vip = network.get("vip")
     if vip not in {None, ""}:
         try:
-            ipaddress.ip_address(vip)
+            ipaddress.ip_address(str(vip))
         except ValueError:
             result.errors.append("network.vip: must be an IP address or null.")
     ports = network.get("ports")
@@ -515,7 +521,7 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
         )
 
     dependencies = _require_mapping(config, "dependencies", result)
-    for dependency_name in ("mongodb", "postgresql"):
+    for dependency_name in ("mongodb", "postgresql", "zabbixPostgresql"):
         dependency = dependencies.get(dependency_name)
         if not isinstance(dependency, dict):
             result.errors.append(
@@ -531,12 +537,40 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
             result.errors.append(
                 f"dependencies.{dependency_name}.version: must be a pinned version."
             )
-        elif dependency_version != TESTED_DEPENDENCY_VERSIONS[dependency_name]:
+        expected_dependency = (
+            "postgresql" if dependency_name == "zabbixPostgresql" else dependency_name
+        )
+        expected_version = TESTED_DEPENDENCY_VERSIONS[expected_dependency]
+        if dependency_version != expected_version:
             result.errors.append(
                 f"dependencies.{dependency_name}.version: {dependency_version!r} "
                 "is outside the tested pinset "
-                f"({TESTED_DEPENDENCY_VERSIONS[dependency_name]})."
+                f"({expected_version})."
             )
+
+    zabbix_enabled = _get(config, "components.zabbix.enabled", False)
+    zabbix_replicas = _get(config, "components.zabbix.replicas", 1)
+    zabbix_database_external = _get(config, "dependencies.zabbixPostgresql.external", False)
+    if (
+        zabbix_enabled
+        and engine in {"raw", "docker", "k3s", "rke2"}
+        and mode == "cluster"
+        and isinstance(zabbix_replicas, int)
+        and not isinstance(zabbix_replicas, bool)
+        and zabbix_replicas > 1
+        and zabbix_database_external is not True
+    ):
+        result.errors.append(
+            "Zabbix HA requires dependencies.zabbixPostgresql.external=true and "
+            "ZABBIX_DATABASE_HOST set to a resilient external PostgreSQL endpoint "
+            "in the secret file."
+        )
+    if zabbix_enabled and engine == "raw" and zabbix_database_external is not True:
+        result.errors.append(
+            "Native Zabbix uses an operator-managed PostgreSQL service; set "
+            "dependencies.zabbixPostgresql.external=true and provide its endpoint "
+            "and credentials through the secret file."
+        )
 
     storage = _require_mapping(config, "storage", result)
     class_name = storage.get("className")

@@ -8,11 +8,14 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 CONFIG_FILE="${CONFIG_FILE:-${REPOSITORY_ROOT}/config/examples/cluster.yml}"
 GENERATED_VALUES_DIR="${GENERATED_VALUES_DIR:-${REPOSITORY_ROOT}/build/production/kubernetes}"
 CHART_CACHE="${CHART_CACHE:-${REPOSITORY_ROOT}/.observeweaver/charts}"
+IMAGE_PIN_POST_RENDERER="${REPOSITORY_ROOT}/scripts/pin_kubernetes_images.py"
 
 KUBE_PROMETHEUS_CHART_VERSION="87.21.0"
 KUBE_PROMETHEUS_CHART_SHA256="05eae98df0ff6c21877a26a4400780e4bbff248bc3b88694ef8d08b273ed6815"
 OTEL_CHART_VERSION="0.165.0"
 OTEL_CHART_SHA256="b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5"
+ZABBIX_CHART_VERSION="7.1.0"
+ZABBIX_CHART_SHA256="35a7bbd391aba7fe1bd03a6a0586a24fb7d0e46763c933651308af361be6fac5"
 GRAYLOG_CHART_VERSION="1.0.0"
 GRAYLOG_CHART_SHA256="06e18864ca7a81809ad23cd081a73b5306ea9f80f78ea3cc71e2abeb64dcf1a4"
 MONGODB_OPERATOR_CHART_VERSION="1.6.1"
@@ -115,6 +118,11 @@ require_command helm
 require_command kubectl
 require_command sha256sum
 require_command "${PYTHON_BIN}"
+if [[ ! -r "${IMAGE_PIN_POST_RENDERER}" ]]; then
+  printf 'ERROR: Kubernetes image lock post-renderer is missing: %s\n' \
+    "${IMAGE_PIN_POST_RENDERER}" >&2
+  exit 2
+fi
 
 namespace="$(config_value deployment.namespace)"
 secret_name="$(config_value security.kubernetesSecretName)"
@@ -152,6 +160,12 @@ otel_chart="$(
     "https://github.com/open-telemetry/opentelemetry-helm-charts/releases/download/opentelemetry-collector-${OTEL_CHART_VERSION}/opentelemetry-collector-${OTEL_CHART_VERSION}.tgz" \
     "${OTEL_CHART_SHA256}"
 )"
+zabbix_chart="$(
+  download_chart \
+    "zabbix-${ZABBIX_CHART_VERSION}" \
+    "https://github.com/zabbix-community/helm-zabbix/releases/download/zabbix-${ZABBIX_CHART_VERSION}/zabbix-${ZABBIX_CHART_VERSION}.tgz" \
+    "${ZABBIX_CHART_SHA256}"
+)"
 graylog_chart="$(
   download_chart \
     "graylog-${GRAYLOG_CHART_VERSION}" \
@@ -173,6 +187,8 @@ if [[
   helm upgrade --install observeweaver-monitoring "${kube_prometheus_chart}" \
     --namespace "${namespace}" \
     --values "${GENERATED_VALUES_DIR}/kube-prometheus-stack.values.generated.yml" \
+    --post-renderer "${PYTHON_BIN}" \
+    --post-renderer-args "${IMAGE_PIN_POST_RENDERER}" \
     --atomic \
     --timeout 20m
 fi
@@ -181,8 +197,20 @@ if [[ "$(config_value components.opentelemetry.enabled)" == "true" ]]; then
   helm upgrade --install observeweaver-otel "${otel_chart}" \
     --namespace "${namespace}" \
     --values "${GENERATED_VALUES_DIR}/opentelemetry-collector.values.generated.yml" \
+    --post-renderer "${PYTHON_BIN}" \
+    --post-renderer-args "${IMAGE_PIN_POST_RENDERER}" \
     --atomic \
     --timeout 10m
+fi
+
+if [[ "$(config_value components.zabbix.enabled)" == "true" ]]; then
+  helm upgrade --install observeweaver-zabbix "${zabbix_chart}" \
+    --namespace "${namespace}" \
+    --values "${GENERATED_VALUES_DIR}/zabbix.values.generated.yml" \
+    --post-renderer "${PYTHON_BIN}" \
+    --post-renderer-args "${IMAGE_PIN_POST_RENDERER}" \
+    --atomic \
+    --timeout 20m
 fi
 
 if [[ "$(config_value components.graylog.enabled)" == "true" ]]; then
@@ -190,6 +218,8 @@ if [[ "$(config_value components.graylog.enabled)" == "true" ]]; then
     --namespace mongodb-operator \
     --create-namespace \
     --set 'operator.watchNamespace=*' \
+    --post-renderer "${PYTHON_BIN}" \
+    --post-renderer-args "${IMAGE_PIN_POST_RENDERER}" \
     --atomic \
     --timeout 10m
 
@@ -200,6 +230,8 @@ if [[ "$(config_value components.graylog.enabled)" == "true" ]]; then
     --namespace "${namespace}" \
     --values "${GENERATED_VALUES_DIR}/graylog.values.generated.yml" \
     --values "${temporary_values}" \
+    --post-renderer "${PYTHON_BIN}" \
+    --post-renderer-args "${IMAGE_PIN_POST_RENDERER}" \
     --atomic \
     --timeout 30m
 fi

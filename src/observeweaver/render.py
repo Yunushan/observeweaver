@@ -11,6 +11,64 @@ import yaml
 
 ANY_IPV4 = "0.0.0.0"  # noqa: S104 - rendered for explicitly exposed listeners
 
+# Immutable multi-architecture manifest lists for the application pinset in
+# versions/stable.yml. Compose references these values as repository@digest.
+DOCKER_IMAGE_TAGS = {
+    "prometheus": "prom/prometheus:v3.13.1",
+    "alertmanager": "prom/alertmanager:v0.33.1",
+    "grafana": "grafana/grafana:13.1.1",
+    "opentelemetry": "otel/opentelemetry-collector-contrib:0.157.0",
+    "postgresql": "postgres:17",
+    "zabbixServer": "zabbix/zabbix-server-pgsql:alpine-7.0.28",
+    "zabbixWeb": "zabbix/zabbix-web-nginx-pgsql:alpine-7.0.28",
+    "mongodb": "mongo:8.0.28",
+    "opensearch": "opensearchproject/opensearch:2.19.5",
+    "graylog": "graylog/graylog:7.1.6",
+}
+
+DOCKER_IMAGE_LOCKS = {
+    "prometheus": (
+        "prom/prometheus@sha256:"
+        "3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893"
+    ),
+    "alertmanager": (
+        "prom/alertmanager@sha256:"
+        "9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d"
+    ),
+    "grafana": (
+        "grafana/grafana@sha256:"
+        "7cb8c64c4d57a57e734073f3cc94620adb24a0acb929bd80ba9f14017e3a975b"
+    ),
+    "opentelemetry": (
+        "otel/opentelemetry-collector-contrib@sha256:"
+        "f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6"
+    ),
+    "postgresql": (
+        "postgres@sha256:"
+        "a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d"
+    ),
+    "zabbixServer": (
+        "zabbix/zabbix-server-pgsql@sha256:"
+        "7b8628474136fae6e1d643278e46ab6d3cd66146fe0a4dbc64a1d22a61ae0c85"
+    ),
+    "zabbixWeb": (
+        "zabbix/zabbix-web-nginx-pgsql@sha256:"
+        "4d109f30358363e4483d4aac43eeec80eb4ec605c9d300f4c235475056c5b06e"
+    ),
+    "mongodb": (
+        "mongo@sha256:"
+        "5351bff2b5d1563e3fa603a74b9be85ef9323e10aeb0b45cea933a93876e77fd"
+    ),
+    "opensearch": (
+        "opensearchproject/opensearch@sha256:"
+        "4ee82ecb35d837a6186c81aaa64c8a5bce71aa956edbd87f1f684ab56af52c44"
+    ),
+    "graylog": (
+        "graylog/graylog@sha256:"
+        "b9a4fd841e4c49c148043265f579554a3bdadf8137ff381b686c194ccb9a3365"
+    ),
+}
+
 
 def _component(config: dict[str, Any], name: str) -> dict[str, Any]:
     return config["components"][name]
@@ -49,6 +107,7 @@ def _docker_env(config: dict[str, Any]) -> str:
             "alertmanager",
             "grafana",
             "opentelemetry",
+            "zabbix",
             "graylog",
             "opensearch",
         )
@@ -78,6 +137,8 @@ def _docker_env(config: dict[str, Any]) -> str:
         "OTELCOL_ENABLED": str(
             _component(config, "opentelemetry")["enabled"]
         ).lower(),
+        "ZABBIX_VERSION": _component(config, "zabbix")["version"],
+        "ZABBIX_ENABLED": str(_component(config, "zabbix")["enabled"]).lower(),
         "GRAYLOG_VERSION": _component(config, "graylog")["version"],
         "GRAYLOG_ENABLED": str(_component(config, "graylog")["enabled"]).lower(),
         "OPENSEARCH_VERSION": _component(config, "opensearch")["version"],
@@ -86,6 +147,16 @@ def _docker_env(config: dict[str, Any]) -> str:
         ).lower(),
         "MONGODB_VERSION": config["dependencies"]["mongodb"]["version"],
         "POSTGRES_VERSION": config["dependencies"]["postgresql"]["version"],
+        "PROMETHEUS_IMAGE": DOCKER_IMAGE_LOCKS["prometheus"],
+        "ALERTMANAGER_IMAGE": DOCKER_IMAGE_LOCKS["alertmanager"],
+        "GRAFANA_IMAGE": DOCKER_IMAGE_LOCKS["grafana"],
+        "OTELCOL_IMAGE": DOCKER_IMAGE_LOCKS["opentelemetry"],
+        "POSTGRES_IMAGE": DOCKER_IMAGE_LOCKS["postgresql"],
+        "ZABBIX_SERVER_IMAGE": DOCKER_IMAGE_LOCKS["zabbixServer"],
+        "ZABBIX_WEB_IMAGE": DOCKER_IMAGE_LOCKS["zabbixWeb"],
+        "MONGODB_IMAGE": DOCKER_IMAGE_LOCKS["mongodb"],
+        "OPENSEARCH_IMAGE": DOCKER_IMAGE_LOCKS["opensearch"],
+        "GRAYLOG_IMAGE": DOCKER_IMAGE_LOCKS["graylog"],
         "PROMETHEUS_PORT": ports["prometheus"],
         "ALERTMANAGER_PORT": ports["alertmanager"],
         "ALERTMANAGER_CLUSTER_PORT": ports["alertmanagerCluster"],
@@ -95,6 +166,8 @@ def _docker_env(config: dict[str, Any]) -> str:
         "OTEL_HEALTH_PORT": ports["otelHealth"],
         "OTEL_METRICS_PORT": ports["otelMetrics"],
         "OTEL_PROMETHEUS_PORT": ports["otelPrometheus"],
+        "ZABBIX_SERVER_PORT": ports["zabbixServer"],
+        "ZABBIX_WEB_PORT": ports["zabbixWeb"],
         "GRAYLOG_HTTP_PORT": ports["graylogHttp"],
         "GRAYLOG_DATANODE_PORT": ports["graylogDataNode"],
         "GRAYLOG_BEATS_PORT": ports["graylogBeats"],
@@ -746,10 +819,58 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 "hosts": [f"graylog.{domain}"],
             }
         ]
+    zabbix_enabled = _component(config, "zabbix")["enabled"]
+    zabbix_replicas = _replicas(config, "zabbix")
+    zabbix_external_database = config["dependencies"]["zabbixPostgresql"]["external"]
+    zabbix_ha = (
+        zabbix_enabled
+        and config["deployment"]["mode"] == "cluster"
+        and config["deployment"]["engine"] in {"k3s", "rke2"}
+        and zabbix_replicas > 1
+    )
+    zabbix = {
+        "zabbixImageTag": f"ubuntu-{_component(config, 'zabbix')['version']}",
+        "postgresAccess": {
+            "existingSecretName": config["security"]["kubernetesSecretName"],
+            "secretHostKey": "ZABBIX_DATABASE_HOST" if zabbix_external_database else "",
+            "secretPortKey": "ZABBIX_DATABASE_PORT" if zabbix_external_database else "",
+            "secretUserKey": "ZABBIX_DATABASE_USER",
+            "secretPasswordKey": "ZABBIX_DATABASE_PASSWORD",
+            "secretDBKey": "ZABBIX_DATABASE_NAME",
+            "host": "",
+            "port": "5432",
+            "user": "zabbix",
+            "database": "zabbix",
+        },
+        "zabbixServer": {
+            "enabled": zabbix_enabled,
+            "replicaCount": zabbix_replicas,
+            "zabbixServerHA": {"enabled": zabbix_ha},
+            "service": {"type": "ClusterIP"},
+        },
+        "zabbixWeb": {
+            "enabled": zabbix_enabled,
+            "replicaCount": zabbix_replicas,
+            "service": {"type": "ClusterIP"},
+        },
+        "postgresql": {
+            "enabled": zabbix_enabled and not zabbix_external_database,
+            "image": {
+                "repository": "postgres",
+                "tag": config["dependencies"]["postgresql"]["version"],
+            },
+            "persistence": {
+                "enabled": zabbix_enabled and not zabbix_external_database,
+                "storageSize": sizes["zabbixPostgresql"],
+                "storageClass": storage.get("className", ""),
+            },
+        },
+    }
     return {
         "kube-prometheus-stack": prometheus,
         "opentelemetry-collector": otel,
         "graylog": graylog,
+        "zabbix": zabbix,
     }
 
 
@@ -770,6 +891,7 @@ def _docker_cluster_node_files(
         "alertmanager": metrics_nodes,
         "grafana": metrics_nodes,
         "opentelemetry": telemetry_nodes,
+        "zabbix": metrics_nodes,
         "graylog": log_nodes,
         "opensearch": data_nodes,
     }
@@ -791,6 +913,10 @@ def _docker_cluster_node_files(
     ]
     if _component(config, "graylog")["enabled"] and node in mongodb_nodes:
         active_profiles.append("mongodb")
+    zabbix_nodes = component_nodes["zabbix"]
+    zabbix_external_database = config["dependencies"]["zabbixPostgresql"]["external"]
+    if zabbix_nodes and node == zabbix_nodes[0] and not zabbix_external_database:
+        active_profiles.append("zabbix-postgresql")
     node_env = {
         "NODE_NAME": node["name"],
         "NODE_ADDRESS": node["address"],
@@ -820,6 +946,17 @@ def _docker_cluster_node_files(
             _component(config, "opensearch")["enabled"]
         ).lower(),
         "MONGODB_VERSION": config["dependencies"]["mongodb"]["version"],
+        "POSTGRES_VERSION": config["dependencies"]["postgresql"]["version"],
+        "PROMETHEUS_IMAGE": DOCKER_IMAGE_LOCKS["prometheus"],
+        "ALERTMANAGER_IMAGE": DOCKER_IMAGE_LOCKS["alertmanager"],
+        "GRAFANA_IMAGE": DOCKER_IMAGE_LOCKS["grafana"],
+        "OTELCOL_IMAGE": DOCKER_IMAGE_LOCKS["opentelemetry"],
+        "POSTGRES_IMAGE": DOCKER_IMAGE_LOCKS["postgresql"],
+        "ZABBIX_SERVER_IMAGE": DOCKER_IMAGE_LOCKS["zabbixServer"],
+        "ZABBIX_WEB_IMAGE": DOCKER_IMAGE_LOCKS["zabbixWeb"],
+        "MONGODB_IMAGE": DOCKER_IMAGE_LOCKS["mongodb"],
+        "OPENSEARCH_IMAGE": DOCKER_IMAGE_LOCKS["opensearch"],
+        "GRAYLOG_IMAGE": DOCKER_IMAGE_LOCKS["graylog"],
         "PROMETHEUS_PORT": ports["prometheus"],
         "ALERTMANAGER_PORT": ports["alertmanager"],
         "ALERTMANAGER_CLUSTER_PORT": ports["alertmanagerCluster"],
@@ -829,6 +966,9 @@ def _docker_cluster_node_files(
         "OTEL_HEALTH_PORT": ports["otelHealth"],
         "OTEL_METRICS_PORT": ports["otelMetrics"],
         "OTEL_PROMETHEUS_PORT": ports["otelPrometheus"],
+        "ZABBIX_VERSION": _component(config, "zabbix")["version"],
+        "ZABBIX_SERVER_PORT": ports["zabbixServer"],
+        "ZABBIX_WEB_PORT": ports["zabbixWeb"],
         "GRAYLOG_HTTP_PORT": ports["graylogHttp"],
         "GRAYLOG_BEATS_PORT": ports["graylogBeats"],
         "GRAYLOG_GELF_TCP_PORT": ports["graylogGelfTcp"],
@@ -860,6 +1000,10 @@ def _docker_cluster_node_files(
         ),
         "COMPOSE_PROFILES": ",".join(active_profiles),
     }
+    if not zabbix_external_database:
+        node_env["ZABBIX_DATABASE_HOST"] = (
+            zabbix_nodes[0]["address"] if zabbix_nodes else ""
+        )
     env_text = "# Generated by owctl; contains no secret values.\n" + "\n".join(
         f"{key}={value}" for key, value in node_env.items()
     ) + "\n"
@@ -1051,6 +1195,9 @@ def _docker_cluster_node_files(
                 "alertmanager",
                 "grafana",
                 "otel-collector",
+                "zabbix-postgresql",
+                "zabbix-server",
+                "zabbix-web",
                 "mongodb",
                 "opensearch",
                 "graylog",

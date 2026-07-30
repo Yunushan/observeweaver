@@ -1,0 +1,207 @@
+---
+- name: Add the Zabbix repository signing key on Debian family
+  ansible.builtin.get_url:
+    url: https://repo.zabbix.com/zabbix-official-repo.key
+    dest: /usr/share/keyrings/zabbix-official-repo.asc
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_os_family == 'Debian'
+
+- name: Configure the Zabbix 7.0 LTS repository on Debian family
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/keyrings/zabbix-official-repo.asc]
+      https://repo.zabbix.com/zabbix/7.0/ubuntu
+      {{ ansible_distribution_release }} main
+    filename: zabbix
+    state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Configure the Zabbix 7.0 LTS repository on Red Hat family
+  ansible.builtin.yum_repository:
+    name: zabbix
+    description: Zabbix 7.0 LTS
+    baseurl: >-
+      https://repo.zabbix.com/zabbix/7.0/rhel/{{ ansible_distribution_major_version }}/$basearch/
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://repo.zabbix.com/RPM-GPG-KEY-ZABBIX-A14FE591
+  when: ansible_os_family == 'RedHat'
+
+- name: Build the immutable Zabbix package version for this platform
+  ansible.builtin.set_fact:
+    observeweaver_zabbix_deb_package_version: >-
+      {{ observeweaver.components.zabbix.version }}-1+ubuntu{{ ansible_distribution_version }}
+    observeweaver_zabbix_rpm_package_version: >-
+      {{ observeweaver.components.zabbix.version }}-release1.el{{ ansible_distribution_major_version }}
+
+- name: Install Zabbix server, web, and PostgreSQL client packages on Debian family
+  ansible.builtin.apt:
+    name:
+      - "zabbix-server-pgsql={{ observeweaver_zabbix_deb_package_version }}"
+      - "zabbix-sql-scripts={{ observeweaver_zabbix_deb_package_version }}"
+      - "zabbix-frontend-php={{ observeweaver_zabbix_deb_package_version }}"
+      - "zabbix-nginx-conf={{ observeweaver_zabbix_deb_package_version }}"
+      - php-fpm
+      - postgresql-client
+    state: present
+    update_cache: true
+    allow_downgrade: true
+  when: ansible_os_family == 'Debian'
+
+- name: Install Zabbix server, web, and PostgreSQL client packages on Red Hat family
+  ansible.builtin.dnf:
+    name:
+      - "zabbix-server-pgsql-{{ observeweaver_zabbix_rpm_package_version }}"
+      - "zabbix-sql-scripts-{{ observeweaver_zabbix_rpm_package_version }}"
+      - "zabbix-web-pgsql-{{ observeweaver_zabbix_rpm_package_version }}"
+      - "zabbix-nginx-conf-{{ observeweaver_zabbix_rpm_package_version }}"
+      - nginx
+      - php-fpm
+      - postgresql
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Confirm the pinned Zabbix server version is installed
+  ansible.builtin.command:
+    argv:
+      - zabbix_server
+      - --version
+  register: observeweaver_zabbix_server_version
+  changed_when: false
+
+- name: Assert the installed Zabbix server matches the supported LTS pin
+  ansible.builtin.assert:
+    that:
+      - observeweaver.components.zabbix.version in observeweaver_zabbix_server_version.stdout
+    fail_msg: >-
+      The installed Zabbix Server does not match the configured supported LTS
+      version {{ observeweaver.components.zabbix.version }}.
+
+- name: Assert that the external Zabbix database endpoint is configured
+  ansible.builtin.assert:
+    that:
+      - zabbix_database_host | length > 0
+      - zabbix_database_port | int > 0
+    fail_msg: >-
+      Set ZABBIX_DATABASE_HOST and ZABBIX_DATABASE_PORT in the protected secret
+      file before deploying raw Zabbix.
+  no_log: true
+
+- name: Check whether the Zabbix database schema already exists
+  ansible.builtin.command:
+    argv:
+      - psql
+      - --host
+      - "{{ zabbix_database_host }}"
+      - --port
+      - "{{ zabbix_database_port | string }}"
+      - --username
+      - "{{ zabbix_database_user }}"
+      - --dbname
+      - "{{ zabbix_database_name }}"
+      - --tuples-only
+      - --no-align
+      - --command
+      - "SELECT to_regclass('public.users') IS NOT NULL"
+  environment:
+    PGPASSWORD: "{{ zabbix_database_password }}"
+  register: observeweaver_zabbix_schema_exists
+  changed_when: false
+  no_log: true
+
+- name: Initialize the Zabbix database schema
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail && zcat /usr/share/zabbix-sql-scripts/postgresql/server.sql.gz |
+      PGPASSWORD={{ zabbix_database_password | quote }} psql
+      --host={{ zabbix_database_host | quote }}
+      --port={{ zabbix_database_port | quote }}
+      --username={{ zabbix_database_user | quote }}
+      --dbname={{ zabbix_database_name | quote }}
+    executable: /bin/bash
+  when: observeweaver_zabbix_schema_exists.stdout | trim == 'f'
+  changed_when: true
+  no_log: true
+
+- name: Configure Zabbix Server
+  ansible.builtin.template:
+    src: zabbix_server.conf.j2
+    dest: /etc/zabbix/zabbix_server.conf
+    owner: root
+    group: zabbix
+    mode: "0640"
+  no_log: true
+  notify: Restart zabbix-server
+
+- name: Configure Zabbix web database access
+  ansible.builtin.template:
+    src: zabbix.conf.php.j2
+    dest: /etc/zabbix/web/zabbix.conf.php
+    owner: root
+    group: root
+    mode: "0640"
+  no_log: true
+  notify: Restart nginx
+
+- name: Detect the PHP-FPM version on Debian family
+  ansible.builtin.command:
+    argv:
+      - php
+      - -r
+      - "echo PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;"
+  register: observeweaver_zabbix_php_version
+  changed_when: false
+  when: ansible_os_family == 'Debian'
+
+- name: Set Zabbix PHP-FPM paths on Debian family
+  ansible.builtin.set_fact:
+    observeweaver_zabbix_php_fpm_pool_path: >-
+      /etc/php/{{ observeweaver_zabbix_php_version.stdout }}/fpm/pool.d/zabbix.conf
+    observeweaver_zabbix_php_fpm_service: "php{{ observeweaver_zabbix_php_version.stdout }}-fpm"
+    observeweaver_zabbix_php_fpm_user: www-data
+  when: ansible_os_family == 'Debian'
+
+- name: Set Zabbix PHP-FPM paths on Red Hat family
+  ansible.builtin.set_fact:
+    observeweaver_zabbix_php_fpm_pool_path: /etc/php-fpm.d/zabbix.conf
+    observeweaver_zabbix_php_fpm_service: php-fpm
+    observeweaver_zabbix_php_fpm_user: nginx
+  when: ansible_os_family == 'RedHat'
+
+- name: Configure a dedicated Zabbix PHP-FPM pool
+  ansible.builtin.template:
+    src: zabbix-php-fpm.conf.j2
+    dest: "{{ observeweaver_zabbix_php_fpm_pool_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart zabbix-php-fpm
+
+- name: Configure Zabbix web virtual host
+  ansible.builtin.template:
+    src: zabbix-nginx.conf.j2
+    dest: /etc/zabbix/nginx.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart nginx
+
+- name: Enable Zabbix Server
+  ansible.builtin.systemd_service:
+    name: zabbix-server
+    enabled: true
+    state: started
+
+- name: Enable Nginx for Zabbix web
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: Enable PHP-FPM for Zabbix web
+  ansible.builtin.systemd_service:
+    name: "{{ observeweaver_zabbix_php_fpm_service }}"
+    enabled: true
+    state: started

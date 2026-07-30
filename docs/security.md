@@ -67,9 +67,11 @@ of every OpenSearch and Graylog member.
 
 ## Supply chain
 
-Application and chart versions are exact. Kubernetes chart archives are
-verified by SHA-256. CI scans the repository filesystem for configuration,
-secret, license, and detectable vulnerability findings; it does not pull and
-scan every referenced container image. Production registries should enforce
-their own image/SBOM scanning policy. Upgrades require compatibility review
-rather than an automated `latest` tag.
+Docker Compose renders application image references as immutable
+repository-and-digest pairs. Kubernetes chart archives are verified by SHA-256
+and the installer post-renders every chart workload image to an immutable
+digest, rejecting unknown image references. CI scans the repository filesystem
+for configuration, secret, license, and detectable vulnerability findings; it
+does not pull and scan every referenced container image. Production registries
+should enforce their own image/SBOM scanning policy. Upgrades require
+compatibility review rather than an automated `latest` tag.

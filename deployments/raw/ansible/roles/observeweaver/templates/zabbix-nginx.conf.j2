@@ -1,0 +1,17 @@
+server {
+    listen {{ observeweaver.network.ports.zabbixWeb }};
+    server_name _;
+    root /usr/share/zabbix;
+    index index.php;
+
+    location = /favicon.ico { log_not_found off; }
+    location / {
+        try_files $uri $uri/ =404;
+    }
+    location ~ \.(php|php7|php8)(/|$) {
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_index index.php;
+        include fastcgi.conf;
+    }
+}

@@ -7,10 +7,24 @@ applications:
   alertmanager: "0.33.1"
   grafana: "13.1.1"
   opentelemetryCollectorContrib: "0.157.0"
+  zabbix: "7.0.28"
   graylog: "7.1.6"
   opensearchGraylogBackend: "2.19.5"
   mongodb: "8.0.28"
   postgresql: "17"
+
+containerImages:
+  # Immutable multi-architecture manifests used by Docker Compose rendering.
+  prometheus: "prom/prometheus@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893"
+  alertmanager: "prom/alertmanager@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d"
+  grafana: "grafana/grafana@sha256:7cb8c64c4d57a57e734073f3cc94620adb24a0acb929bd80ba9f14017e3a975b"
+  opentelemetry: "otel/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6"
+  postgresql: "postgres@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d"
+  zabbixServer: "zabbix/zabbix-server-pgsql@sha256:7b8628474136fae6e1d643278e46ab6d3cd66146fe0a4dbc64a1d22a61ae0c85"
+  zabbixWeb: "zabbix/zabbix-web-nginx-pgsql@sha256:4d109f30358363e4483d4aac43eeec80eb4ec605c9d300f4c235475056c5b06e"
+  mongodb: "mongo@sha256:5351bff2b5d1563e3fa603a74b9be85ef9323e10aeb0b45cea933a93876e77fd"
+  opensearch: "opensearchproject/opensearch@sha256:4ee82ecb35d837a6186c81aaa64c8a5bce71aa956edbd87f1f684ab56af52c44"
+  graylog: "graylog/graylog@sha256:b9a4fd841e4c49c148043265f579554a3bdadf8137ff381b686c194ccb9a3365"
 
 profiles:
   opensearchGeneralPurpose:
@@ -25,6 +39,11 @@ helmCharts:
     version: "0.165.0"
     appVersion: "0.156.0"
     sha256: b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5
+  zabbix:
+    version: "7.1.0"
+    # Chart metadata default; render.py overrides the image with applications.zabbix.
+    appVersion: "7.0.23"
+    sha256: 35a7bbd391aba7fe1bd03a6a0586a24fb7d0e46763c933651308af361be6fac5
   graylog:
     version: "1.0.0"
     maturity: beta

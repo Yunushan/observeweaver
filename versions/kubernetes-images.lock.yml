@@ -1,0 +1,27 @@
+schemaVersion: 1
+# Every image emitted by the chart locks in versions/stable.yml for the default
+# production cluster profile. The Helm post-renderer rejects unknown images.
+chartImages:
+  "alpine:3.23": "alpine@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40"
+  "busybox:latest": "busybox@sha256:fd8d9aa63ba2f0982b5304e1ee8d3b90a210bc1ffb5314d980eb6962f1a9715d"
+  "curlimages/curl:8.17.0": "curlimages/curl@sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40"
+  "docker.io/grafana/grafana:13.1.1": "docker.io/grafana/grafana@sha256:7cb8c64c4d57a57e734073f3cc94620adb24a0acb929bd80ba9f14017e3a975b"
+  "ghcr.io/jkroepke/kube-webhook-certgen:1.8.5": "ghcr.io/jkroepke/kube-webhook-certgen@sha256:d0e80b2f62fe43bb5e1b96adc692132fb4522e802f4cf673c09b1f94722b8cb6"
+  "ghcr.io/zabbix-community/zabbix-server-create-upgrade-db:7.0-20241230222241": "ghcr.io/zabbix-community/zabbix-server-create-upgrade-db@sha256:9d933e674acf8ca2fe01b0f65f395780e79d9178c46a76e8deeecc24ce31fc99"
+  "ghcr.io/zabbix-community/zabbix-server-ha-label-manager:20241230230305": "ghcr.io/zabbix-community/zabbix-server-ha-label-manager@sha256:bbb6810fd5d59fff853dea5ba9b7856bbf2daf3d23005587c6ad51512b315f51"
+  "graylog/graylog-datanode:7.1.6": "graylog/graylog-datanode@sha256:4867cd8ad09ee7a129c0898fe326b0b638928d984789072eb3640fef42fccf5d"
+  "graylog/graylog:7.1.6": "graylog/graylog@sha256:b9a4fd841e4c49c148043265f579554a3bdadf8137ff381b686c194ccb9a3365"
+  "mongo:8.0.28": "mongo@sha256:5351bff2b5d1563e3fa603a74b9be85ef9323e10aeb0b45cea933a93876e77fd"
+  "otel/opentelemetry-collector-contrib:0.157.0": "otel/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6"
+  "postgres:16": "postgres@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20"
+  "quay.io/kiwigrid/k8s-sidecar:2.10.0": "quay.io/kiwigrid/k8s-sidecar@sha256:21b9fe7bb29d65caf2445ccbf96ff6eda5e589a92bd8f5188f957fe75b551d72"
+  "quay.io/mongodb/mongodb-kubernetes:1.6.1": "quay.io/mongodb/mongodb-kubernetes@sha256:22e4ae882cff477adc99cb74bc979cb112d9e0abf37509298a3839fea274ae75"
+  "quay.io/prometheus-operator/prometheus-operator:v0.92.1": "quay.io/prometheus-operator/prometheus-operator@sha256:7d9247d2351480fc74587e24681578f815f387bafb2ee7b86a852a94c4cd3774"
+  "quay.io/prometheus/alertmanager:v0.33.1": "quay.io/prometheus/alertmanager@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d"
+  "quay.io/prometheus/node-exporter:v1.12.1-distroless": "quay.io/prometheus/node-exporter@sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106"
+  "quay.io/prometheus/prometheus:v3.13.1": "quay.io/prometheus/prometheus@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893"
+  "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1": "registry.k8s.io/kube-state-metrics/kube-state-metrics@sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1"
+  "zabbix/zabbix-agent2:ubuntu-7.0.28": "zabbix/zabbix-agent2@sha256:32203c8490e40411a54dfddd6729e9ae85a7d34db56de4cae06d094a593e0aa9"
+  "zabbix/zabbix-server-pgsql:ubuntu-7.0.28": "zabbix/zabbix-server-pgsql@sha256:c315c0a2461da644adaf5503a189da7593aa4349b0e86e3458adf30452538cb5"
+  "zabbix/zabbix-web-nginx-pgsql:ubuntu-7.0.28": "zabbix/zabbix-web-nginx-pgsql@sha256:dce1783d011efd685770477722ae0166beaf3c31c709d30889dd9d1089f4c222"
+  "zabbix/zabbix-web-service:ubuntu-7.0.28": "zabbix/zabbix-web-service@sha256:9ada7cd20cfef3cc47cd46d55824b1f3f59513e8884e80234c3ee831d4f09bbd"

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +12,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from observeweaver.config import load_config, validate_config
-from observeweaver.render import render
+from observeweaver.render import DOCKER_IMAGE_LOCKS, DOCKER_IMAGE_TAGS, render
 from observeweaver.secrets import generate_secret_values, write_secret_file
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +64,40 @@ class ConfigTests(unittest.TestCase):
         config["components"]["graylog"]["enabled"] = True
         result = validate_config(config)
         self.assertTrue(any("no supported native Windows" in error for error in result.errors))
+
+    def test_zabbix_uses_the_lts_pin(self) -> None:
+        config = self.load_example("standalone.yml")
+        config["components"]["zabbix"]["version"] = "7.4.1"
+        result = validate_config(config)
+        self.assertTrue(any("tested pinset (7.0.28)" in error for error in result.errors))
+
+    def test_zabbix_ha_requires_an_external_database(self) -> None:
+        config = self.load_example("cluster.yml")
+        config["dependencies"]["zabbixPostgresql"]["external"] = False
+        result = validate_config(config)
+        self.assertTrue(any("Zabbix HA requires" in error for error in result.errors))
+
+    def test_raw_zabbix_requires_an_external_database(self) -> None:
+        config = self.load_example("raw-standalone.yml")
+        config["dependencies"]["zabbixPostgresql"]["external"] = False
+        result = validate_config(config)
+        self.assertTrue(any("Native Zabbix uses" in error for error in result.errors))
+
+    def test_new_linux_platform_versions_are_accepted(self) -> None:
+        for distribution, version in (
+            ("ubuntu", "26.04"),
+            ("rocky", "10"),
+            ("almalinux", "10"),
+            ("rhel", "10"),
+        ):
+            with self.subTest(distribution=distribution):
+                config = self.load_example("raw-standalone.yml")
+                config["platform"]["distribution"] = distribution
+                config["platform"]["version"] = version
+                result = validate_config(config)
+                self.assertFalse(
+                    any("supported version" in error for error in result.errors)
+                )
 
     def test_latest_tag_is_rejected(self) -> None:
         config = self.load_example("standalone.yml")
@@ -213,20 +249,91 @@ class RenderTests(unittest.TestCase):
         config = load_config(ROOT / "config" / "examples" / "standalone.yml")
         with tempfile.TemporaryDirectory() as directory:
             created = render(config, directory)
-            self.assertEqual(12, len(created))
+            self.assertEqual(13, len(created))
             combined = "\n".join(path.read_text(encoding="utf-8") for path in created)
             self.assertNotIn("GRAFANA_ADMIN_PASSWORD=", combined)
             self.assertIn("PROMETHEUS_VERSION=3.13.1", combined)
             self.assertIn(
                 "COMPOSE_PROFILES=prometheus,alertmanager,grafana,"
-                "opentelemetry,graylog,opensearch,mongodb",
+                "opentelemetry,zabbix,graylog,opensearch,mongodb",
                 combined,
             )
+
+    def test_docker_standalone_renders_zabbix_profile(self) -> None:
+        config = load_config(ROOT / "config" / "examples" / "standalone.yml")
+        with tempfile.TemporaryDirectory() as directory:
+            render(config, directory)
+            environment = (
+                Path(directory) / "production" / "docker" / ".env.generated"
+            ).read_text(encoding="utf-8")
+            self.assertIn("ZABBIX_VERSION=7.0.28", environment)
+            self.assertIn("ZABBIX_SERVER_PORT=10051", environment)
+            self.assertIn("ZABBIX_WEB_PORT=8080", environment)
+            self.assertIn(
+                "ZABBIX_SERVER_IMAGE="
+                "zabbix/zabbix-server-pgsql@sha256:",
+                environment,
+            )
+            self.assertIn("COMPOSE_PROFILES=", environment)
+            self.assertIn("zabbix", environment)
+
+    def test_docker_image_locks_are_immutable_and_match_the_lockfile(self) -> None:
+        lockfile = yaml.safe_load(
+            (ROOT / "versions" / "stable.yml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(lockfile["containerImages"], DOCKER_IMAGE_LOCKS)
+        self.assertEqual(set(DOCKER_IMAGE_TAGS), set(DOCKER_IMAGE_LOCKS))
+        self.assertEqual(10, len(DOCKER_IMAGE_LOCKS))
+        for name, image in DOCKER_IMAGE_LOCKS.items():
+            repository, digest = image.split("@", 1)
+            self.assertTrue(repository)
+            self.assertRegex(digest, r"^sha256:[0-9a-f]{64}$")
+            self.assertEqual(repository, DOCKER_IMAGE_TAGS[name].rsplit(":", 1)[0])
+
+        for compose_name in ("compose.yml", "compose.cluster-node.yml"):
+            compose = (
+                ROOT / "deployments" / "docker" / compose_name
+            ).read_text(encoding="utf-8")
+            self.assertNotIn("_VERSION", compose)
+            self.assertRegex(compose, r"image: \$\{[A-Z_]+_IMAGE:\?[^}]+}")
+
+    def test_kubernetes_image_post_renderer_is_digest_only_and_fail_closed(self) -> None:
+        lockfile = yaml.safe_load(
+            (ROOT / "versions" / "kubernetes-images.lock.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        locks = lockfile["chartImages"]
+        self.assertEqual(23, len(locks))
+        for image in locks.values():
+            self.assertRegex(image, r"^[^@]+@sha256:[0-9a-f]{64}$")
+
+        script = ROOT / "scripts" / "pin_kubernetes_images.py"
+        known = subprocess.run(
+            [sys.executable, str(script)],
+            input="        image: \"mongo:8.0.28\"\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(0, known.returncode, known.stderr)
+        self.assertIn(locks["mongo:8.0.28"], known.stdout)
+
+        unknown = subprocess.run(
+            [sys.executable, str(script)],
+            input="        image: example.invalid/unlocked:1.0\n",
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(1, unknown.returncode)
+        self.assertIn("unpinned Kubernetes chart image", unknown.stderr)
 
     def test_standalone_render_honors_component_selection(self) -> None:
         config = load_config(ROOT / "config" / "examples" / "standalone.yml")
         config["components"]["alertmanager"]["enabled"] = False
         config["components"]["grafana"]["enabled"] = False
+        config["components"]["zabbix"]["enabled"] = False
         config["components"]["graylog"]["enabled"] = False
         config["components"]["opensearch"]["enabled"] = False
         self.assertEqual([], validate_config(config).errors)
@@ -322,6 +429,18 @@ class RenderTests(unittest.TestCase):
             self.assertIn("${MONGODB_ROOT_PASSWORD}", combined)
             self.assertIn("otel-exported-metrics", combined)
             self.assertIn("GRAYLOG_SYSLOG_UDP_PORT=1514", combined)
+            self.assertNotIn("ZABBIX_DATABASE_HOST=", combined)
+            for node in ("obs-01", "obs-02", "obs-03"):
+                environment = (
+                    Path(directory)
+                    / "production"
+                    / "docker"
+                    / "nodes"
+                    / node
+                    / ".env.generated"
+                ).read_text(encoding="utf-8")
+                self.assertIn("zabbix", environment)
+                self.assertNotIn("zabbix-postgresql", environment)
 
     def test_cluster_graylog_uses_automatic_leader_election(self) -> None:
         raw_template = (
@@ -362,6 +481,20 @@ class RenderTests(unittest.TestCase):
             opensearch_environment,
         )
 
+    def test_zabbix_is_covered_by_deployment_verification(self) -> None:
+        docker_verifier = (ROOT / "scripts" / "verify.sh").read_text(encoding="utf-8")
+        deploy_script = (ROOT / "scripts" / "observeweaver.sh").read_text(
+            encoding="utf-8"
+        )
+        raw_verifier = (
+            ROOT / "deployments" / "raw" / "ansible" / "playbooks" / "verify.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"zabbix": "metrics"', docker_verifier)
+        self.assertIn("checks[zabbix-web]", docker_verifier)
+        self.assertIn("PASS  zabbix-server", docker_verifier)
+        self.assertIn("ZABBIX_DATABASE_HOST", deploy_script)
+        self.assertIn("Check Zabbix Server listener", raw_verifier)
+
         config = load_config(ROOT / "config" / "examples" / "docker-cluster.yml")
         with tempfile.TemporaryDirectory() as directory:
             render(config, directory)
@@ -386,6 +519,31 @@ class RenderTests(unittest.TestCase):
                         "GRAYLOG_ELASTICSEARCH_HOSTS"
                     ],
                 )
+
+    def test_raw_zabbix_uses_the_locked_lts_packages(self) -> None:
+        raw_tasks = (
+            ROOT
+            / "deployments"
+            / "raw"
+            / "ansible"
+            / "roles"
+            / "observeweaver"
+            / "tasks"
+            / "zabbix.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("https://repo.zabbix.com/zabbix/7.0/ubuntu", raw_tasks)
+        self.assertNotIn("zabbix/7.0/stable/ubuntu", raw_tasks)
+        self.assertIn("observeweaver_zabbix_deb_package_version", raw_tasks)
+        self.assertIn("observeweaver_zabbix_rpm_package_version", raw_tasks)
+        self.assertIn(
+            "zabbix-server-pgsql={{ observeweaver_zabbix_deb_package_version }}",
+            raw_tasks,
+        )
+        self.assertIn(
+            "zabbix-server-pgsql-{{ observeweaver_zabbix_rpm_package_version }}",
+            raw_tasks,
+        )
+        self.assertIn("Confirm the pinned Zabbix server version", raw_tasks)
 
     def test_raw_inventory_honors_component_replica_counts(self) -> None:
         config = load_config(ROOT / "config" / "examples" / "raw-cluster.yml")
@@ -468,6 +626,28 @@ class RenderTests(unittest.TestCase):
             self.assertFalse(
                 graylog_values["ingress"]["config"]["defaultBackend"]["enabled"]
             )
+
+    def test_kubernetes_zabbix_ha_uses_external_secret_backed_database(self) -> None:
+        config = load_config(ROOT / "config" / "examples" / "cluster.yml")
+        with tempfile.TemporaryDirectory() as directory:
+            render(config, directory)
+            values = yaml.safe_load(
+                (
+                    Path(directory)
+                    / "production"
+                    / "kubernetes"
+                    / "zabbix.values.generated.yml"
+                ).read_text(encoding="utf-8")
+            )
+        self.assertTrue(values["zabbixServer"]["zabbixServerHA"]["enabled"])
+        self.assertEqual(3, values["zabbixServer"]["replicaCount"])
+        self.assertFalse(values["postgresql"]["enabled"])
+        self.assertEqual(
+            "observeweaver-secrets", values["postgresAccess"]["existingSecretName"]
+        )
+        self.assertEqual(
+            "ZABBIX_DATABASE_PASSWORD", values["postgresAccess"]["secretPasswordKey"]
+        )
 
     def test_kubernetes_values_honor_monitoring_component_selection(self) -> None:
         config = load_config(ROOT / "config" / "examples" / "cluster.yml")

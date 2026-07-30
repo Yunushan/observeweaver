@@ -13,6 +13,8 @@ ObserveWeaver installs and configures:
 - Alertmanager
 - Grafana OSS
 - OpenTelemetry Collector Contrib
+- Zabbix Server, web interface, and PostgreSQL integration (raw Linux, Docker,
+  and K3s/RKE2)
 - Graylog Open
 - OpenSearch
 
@@ -49,8 +51,8 @@ flowchart TD
 
 | Target | Standalone | 3+ nodes | Full central stack | Status |
 |---|---:|---:|---:|---|
-| Ubuntu 22.04/24.04 native | Yes | Yes | Yes | Supported |
-| Rocky/Alma/RHEL 9 native | Yes | Yes | Yes | Supported |
+| Ubuntu 22.04/24.04/26.04 native | Yes | Yes | Yes | Supported |
+| Rocky/Alma/RHEL 9/10 native | Yes | Yes | Yes | Supported |
 | Rocky/Alma/RHEL 8 containers | Yes | Yes | Yes | Raw unsupported; containers supported |
 | Linux Docker Compose | Yes | Multi-host beta | Yes | Supported / beta |
 | K3s on Linux | Yes | Yes | Yes | Supported; Graylog chart beta |
@@ -72,6 +74,7 @@ matrix](docs/support-matrix.md).
 | Alertmanager | 0.33.1 | Prometheus targets every peer directly |
 | Grafana OSS | 13.1.1 | 2+ replicas require shared PostgreSQL/MySQL |
 | OTel Collector Contrib | 0.157.0 | No durable trace backend is bundled |
+| Zabbix Server | 7.0.28 LTS | Raw Linux, Docker, and K3s/RKE2; clustered HA requires external PostgreSQL |
 | Graylog | 7.1.6 | No rolling upgrade |
 | OpenSearch for Graylog | 2.19.5 | 2.19.6 and 3.x are rejected |
 | MongoDB | 8.0.28 | Required Graylog dependency |
@@ -121,8 +124,10 @@ cp config/examples/cluster.yml config/production-ha.yml
 CONFIG_FILE=config/production-ha.yml scripts/observeweaver.sh validate
 CONFIG_FILE=config/production-ha.yml scripts/observeweaver.sh secrets
 
-# For Grafana HA, edit secrets/observeweaver.env and set:
+# For Grafana and Zabbix HA, edit secrets/observeweaver.env and set:
 # GRAFANA_DATABASE_HOST, GRAFANA_DATABASE_NAME, and GRAFANA_DATABASE_USER.
+# ZABBIX_DATABASE_HOST, ZABBIX_DATABASE_PORT, ZABBIX_DATABASE_USER,
+# ZABBIX_DATABASE_PASSWORD, and ZABBIX_DATABASE_NAME.
 
 CONFIG_FILE=config/production-ha.yml scripts/observeweaver.sh render
 CONFIG_FILE=config/production-ha.yml scripts/observeweaver.sh deploy --yes

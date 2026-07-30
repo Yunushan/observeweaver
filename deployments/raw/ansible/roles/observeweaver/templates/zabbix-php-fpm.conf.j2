@@ -1,0 +1,12 @@
+[zabbix]
+user = {{ observeweaver_zabbix_php_fpm_user }}
+group = {{ observeweaver_zabbix_php_fpm_user }}
+listen = 127.0.0.1:9000
+listen.owner = {{ observeweaver_zabbix_php_fpm_user }}
+listen.group = {{ observeweaver_zabbix_php_fpm_user }}
+pm = dynamic
+pm.max_children = 32
+pm.start_servers = 4
+pm.min_spare_servers = 2
+pm.max_spare_servers = 8
+php_admin_value[date.timezone] = UTC

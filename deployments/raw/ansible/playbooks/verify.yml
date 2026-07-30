@@ -30,6 +30,11 @@
         enabled: "{{ observeweaver.components.graylog.enabled }}"
         port: "{{ observeweaver.network.ports.graylogHttp }}"
         path: /api/system/lbstatus
+      - name: nginx
+        group: zabbix
+        enabled: "{{ observeweaver.components.zabbix.enabled }}"
+        port: "{{ observeweaver.network.ports.zabbixWeb }}"
+        path: /
   tasks:
     - name: Check installed systemd services
       ansible.builtin.command:
@@ -104,6 +109,28 @@
       register: opensearch_service_status
       changed_when: false
       when: inventory_hostname in groups.get('opensearch', [])
+
+    - name: Check Zabbix Server service
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - zabbix-server
+      register: zabbix_service_status
+      changed_when: false
+      when:
+        - observeweaver.components.zabbix.enabled | bool
+        - inventory_hostname in groups.get('zabbix', [])
+
+    - name: Check Zabbix Server listener
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ observeweaver.network.ports.zabbixServer }}"
+        state: started
+        timeout: 60
+      when:
+        - observeweaver.components.zabbix.enabled | bool
+        - inventory_hostname in groups.get('zabbix', [])
 
     - name: Check authenticated OpenSearch readiness
       ansible.builtin.uri:

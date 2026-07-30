@@ -50,6 +50,9 @@ jobs:
       - name: Lint Python
         run: ruff check src tests
 
+      - name: Type check Python
+        run: pyright
+
       - name: Check deterministic rendering
         shell: bash
         run: |
@@ -141,6 +144,7 @@ jobs:
         shell: bash
         env:
           GRAFANA_DATABASE_HOST: postgresql.example.com:5432
+          ZABBIX_DATABASE_HOST: zabbix-postgresql.example.com
         run: |
           set -euo pipefail
           for node in obs-01 obs-02 obs-03; do
@@ -152,6 +156,52 @@ jobs:
               -f deployments/docker/compose.cluster-node.yml \
               -f "build/production/docker/nodes/${node}/compose.override.generated.yml" \
               config --quiet
+          done
+
+  raw-zabbix-packages:
+    name: Raw Zabbix package locks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Verify Ubuntu Zabbix LTS package artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          zabbix_version="$(awk '/^  zabbix:/{print $2; exit}' versions/stable.yml | tr -d '\"')"
+          test -n "${zabbix_version}"
+          for release in 22.04 24.04 26.04; do
+            base_url="https://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix"
+            curl --fail --silent --show-error --head \
+              "${base_url}/zabbix-server-pgsql_${zabbix_version}-1+ubuntu${release}_amd64.deb"
+            curl --fail --silent --show-error --head \
+              "${base_url}/zabbix-sql-scripts_${zabbix_version}-1+ubuntu${release}_all.deb"
+            curl --fail --silent --show-error --head \
+              "${base_url}/zabbix-frontend-php_${zabbix_version}-1+ubuntu${release}_all.deb"
+            curl --fail --silent --show-error --head \
+              "${base_url}/zabbix-nginx-conf_${zabbix_version}-1+ubuntu${release}_all.deb"
+          done
+
+      - name: Verify Enterprise Linux Zabbix LTS package artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          zabbix_version="$(awk '/^  zabbix:/{print $2; exit}' versions/stable.yml | tr -d '\"')"
+          test -n "${zabbix_version}"
+          for release in 9 10; do
+            base_url="https://repo.zabbix.com/zabbix/7.0/rhel/${release}/x86_64"
+            curl --fail --silent --show-error --head \
+              "${base_url}/zabbix-server-pgsql-${zabbix_version}-release1.el${release}.x86_64.rpm"
+            curl --fail --silent --show-error --head \
+              "${base_url}/zabbix-sql-scripts-${zabbix_version}-release1.el${release}.noarch.rpm"
+            curl --fail --silent --show-error --head \
+              "${base_url}/zabbix-web-pgsql-${zabbix_version}-release1.el${release}.noarch.rpm"
+            curl --fail --silent --show-error --head \
+              "${base_url}/zabbix-nginx-conf-${zabbix_version}-release1.el${release}.noarch.rpm"
           done
 
   ansible:
@@ -229,6 +279,9 @@ jobs:
             https://github.com/open-telemetry/opentelemetry-helm-charts/releases/download/opentelemetry-collector-0.165.0/opentelemetry-collector-0.165.0.tgz \
             --output /tmp/opentelemetry-collector.tgz
           curl --fail --silent --show-error --location \
+            https://github.com/zabbix-community/helm-zabbix/releases/download/zabbix-7.1.0/zabbix-7.1.0.tgz \
+            --output /tmp/zabbix.tgz
+          curl --fail --silent --show-error --location \
             https://github.com/Graylog2/graylog-helm/releases/download/graylog-1.0.0/graylog-1.0.0.tgz \
             --output /tmp/graylog.tgz
           curl --fail --silent --show-error --location \
@@ -237,6 +290,7 @@ jobs:
           sha256sum --check <<'EOF'
           05eae98df0ff6c21877a26a4400780e4bbff248bc3b88694ef8d08b273ed6815  /tmp/kube-prometheus-stack.tgz
           b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5  /tmp/opentelemetry-collector.tgz
+          35a7bbd391aba7fe1bd03a6a0586a24fb7d0e46763c933651308af361be6fac5  /tmp/zabbix.tgz
           06e18864ca7a81809ad23cd081a73b5306ea9f80f78ea3cc71e2abeb64dcf1a4  /tmp/graylog.tgz
           4d9d167c5c7f41d559a948f18a24cee64c96530db098b07e39f59825cc12b6fd  /tmp/mongodb-kubernetes.tgz
           EOF
@@ -250,22 +304,37 @@ jobs:
             --namespace observeweaver \
             --kube-version 1.33 \
             --values build/production/kubernetes/kube-prometheus-stack.values.generated.yml \
+            --post-renderer python \
+            --post-renderer-args scripts/pin_kubernetes_images.py \
             >/dev/null
           helm template observeweaver-otel /tmp/opentelemetry-collector.tgz \
             --namespace observeweaver \
             --kube-version 1.33 \
             --values build/production/kubernetes/opentelemetry-collector.values.generated.yml \
+            --post-renderer python \
+            --post-renderer-args scripts/pin_kubernetes_images.py \
+            >/dev/null
+          helm template observeweaver-zabbix /tmp/zabbix.tgz \
+            --namespace observeweaver \
+            --kube-version 1.33 \
+            --values build/production/kubernetes/zabbix.values.generated.yml \
+            --post-renderer python \
+            --post-renderer-args scripts/pin_kubernetes_images.py \
             >/dev/null
           helm template observeweaver-graylog /tmp/graylog.tgz \
             --namespace observeweaver \
             --kube-version 1.33 \
             --values build/production/kubernetes/graylog.values.generated.yml \
             --set-string graylog.config.rootPassword=validation-only \
+            --post-renderer python \
+            --post-renderer-args scripts/pin_kubernetes_images.py \
             >/dev/null
           helm template mongodb-kubernetes-operator /tmp/mongodb-kubernetes.tgz \
             --namespace mongodb-operator \
             --kube-version 1.33 \
             --set 'operator.watchNamespace=*' \
+            --post-renderer python \
+            --post-renderer-args scripts/pin_kubernetes_images.py \
             >/dev/null
 
   powershell:
@@ -309,7 +378,7 @@ jobs:
   required:
     name: Required checks
     if: always()
-    needs: [config-and-python, yaml-and-shell, compose, ansible, helm, powershell]
+    needs: [config-and-python, yaml-and-shell, compose, raw-zabbix-packages, ansible, helm, powershell]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -317,4 +386,4 @@ jobs:
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          test "${RESULTS}" = "success success success success success success"
+          test "${RESULTS}" = "success success success success success success success"

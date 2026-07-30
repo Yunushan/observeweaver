@@ -26,6 +26,28 @@
     - observeweaver.components.opentelemetry.enabled | bool
     - inventory_hostname in groups.get('opentelemetry', [])
 
+- name: Install Zabbix Server and web frontend
+  ansible.builtin.include_tasks: zabbix.yml
+  vars:
+    zabbix_database_host: >-
+      {{ lookup('ansible.builtin.ini', 'ZABBIX_DATABASE_HOST', type='properties',
+      file=observeweaver_secret_file) }}
+    zabbix_database_port: >-
+      {{ lookup('ansible.builtin.ini', 'ZABBIX_DATABASE_PORT', type='properties',
+      file=observeweaver_secret_file) | default('5432', true) }}
+    zabbix_database_user: >-
+      {{ lookup('ansible.builtin.ini', 'ZABBIX_DATABASE_USER', type='properties',
+      file=observeweaver_secret_file) | default('zabbix', true) }}
+    zabbix_database_password: >-
+      {{ lookup('ansible.builtin.ini', 'ZABBIX_DATABASE_PASSWORD', type='properties',
+      file=observeweaver_secret_file) }}
+    zabbix_database_name: >-
+      {{ lookup('ansible.builtin.ini', 'ZABBIX_DATABASE_NAME', type='properties',
+      file=observeweaver_secret_file) | default('zabbix', true) }}
+  when:
+    - observeweaver.components.zabbix.enabled | bool
+    - inventory_hostname in groups.get('zabbix', [])
+
 - name: Install MongoDB
   ansible.builtin.include_tasks: mongodb.yml
   when:

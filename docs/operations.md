@@ -7,6 +7,9 @@ Back up each state domain independently:
 - OpenSearch/Data Node snapshots to a separate repository.
 - MongoDB with replica-set-aware `mongodump` or an operator-supported backup.
 - Grafana PostgreSQL plus provisioned dashboards/datasources.
+- Zabbix PostgreSQL, including the configuration, history, trends, and event
+  data that are all stored in its database. Test a restore against a Zabbix
+  Server at the same locked 7.0 LTS patch before relying on it.
 - Prometheus snapshots when historical local TSDB recovery is required.
 - Graylog content packs, pipeline rules, index-set settings, certificates, and
   the protected secret material.
@@ -62,4 +65,26 @@ maintenance window.
 - Graylog journal utilization and processing buffers.
 - OpenSearch cluster health, unassigned shards, disk watermarks, and snapshots.
 - MongoDB replica-set lag, elections, and backup success.
+- Zabbix Server queue, database connectivity, and the external PostgreSQL
+  backup/failover state.
 - Certificate and credential expiration/rotation.
+
+## Production release gates
+
+Before a change is promoted, verify the locked Compose and Kubernetes image
+digests against the approved registry/SBOM policy. The Kubernetes installer
+post-renders every chart workload image to a lock in
+`versions/kubernetes-images.lock.yml` and rejects an image that is not listed.
+Treat a changed digest behind an existing tag as a new release that needs the
+same compatibility and staging checks.
+
+When updating an image lock, run `scripts/verify_image_locks.py` and
+`scripts/verify_kubernetes_image_locks.py` from a registry-authenticated
+release environment. These scripts verify that a candidate upstream tag still
+resolves to the intended digest; mandatory CI does not perform those live
+lookups, because anonymous registry rate limits would make the gate unreliable.
+
+For HA profiles, prove the selected storage, load balancer, external Grafana
+PostgreSQL, and external Zabbix PostgreSQL service with an actual node-loss and
+restore drill. A rendered configuration or a Helm template is not proof of
+those infrastructure guarantees.

@@ -168,6 +168,8 @@
             "otelHealth",
             "otelMetrics",
             "otelPrometheus",
+            "zabbixServer",
+            "zabbixWeb",
             "graylogHttp",
             "graylogDataNode",
             "graylogBeats",
@@ -240,7 +242,8 @@
             "graylogJournal",
             "opensearch",
             "mongodb",
-            "postgresql"
+            "postgresql",
+            "zabbixPostgresql"
           ],
           "additionalProperties": {
             "type": "string",
@@ -289,6 +292,7 @@
         "alertmanager",
         "grafana",
         "opentelemetry",
+        "zabbix",
         "graylog",
         "opensearch"
       ],
@@ -306,6 +310,9 @@
         "opentelemetry": {
           "$ref": "#/$defs/component"
         },
+        "zabbix": {
+          "$ref": "#/$defs/component"
+        },
         "graylog": {
           "$ref": "#/$defs/component"
         },
@@ -317,12 +324,28 @@
     "dependencies": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mongodb", "postgresql"],
+      "required": ["mongodb", "postgresql", "zabbixPostgresql"],
       "properties": {
         "mongodb": {
           "$ref": "#/$defs/dependency"
         },
         "postgresql": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/dependency"
+            },
+            {
+              "type": "object",
+              "required": ["external"],
+              "properties": {
+                "external": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
+        },
+        "zabbixPostgresql": {
           "allOf": [
             {
               "$ref": "#/$defs/dependency"

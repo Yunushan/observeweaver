@@ -8,12 +8,16 @@ has identical CI depth.
 |---|---:|---:|---:|---:|---|
 | Ubuntu 22.04 | Full | Full | Full | Full | 1 |
 | Ubuntu 24.04 | Full | Full | Full | Full | 1 |
+| Ubuntu 26.04 | Full | Full | Full | Full | 1/2 |
 | Rocky Linux 8 | No | Full | Full | Full | 2 |
 | Rocky Linux 9 | Full | Full | Full | Full | 1/2 |
+| Rocky Linux 10 | Full | Full | Full | Full | 1/2 |
 | AlmaLinux 8 | No | Full | Full | Full | 2 |
 | AlmaLinux 9 | Full | Full | Full | Full | 1/2 |
+| AlmaLinux 10 | Full | Full | Full | Full | 1/2 |
 | RHEL 8 | No | Full | Full | Full | 2; licensed runner needed |
 | RHEL 9 | Compatible | Full | Full | Full | 2; licensed runner needed |
+| RHEL 10 | Compatible | Full | Full | Full | 2; licensed runner needed |
 | Windows 10/11 | Selected components | WSL2 Linux | No server | Client/agent only | 2 |
 | Windows Server 2019/2022/2025 | Selected components | Linux VM | No server | Client/agent only | 2/3 |
 

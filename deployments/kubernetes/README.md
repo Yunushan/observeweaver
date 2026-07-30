@@ -21,6 +21,7 @@ digests. It installs:
 
 - kube-prometheus-stack 87.21.0;
 - OpenTelemetry Collector chart 0.165.0, with the configured Contrib image;
+- Zabbix chart 7.1.0, configured to use Zabbix 7.0.28 LTS and PostgreSQL;
 - Graylog chart 1.0.0 with Graylog/Data Node 7.1.6;
 - the Graylog-documented MongoDB Kubernetes operator 1.6.1.
 
@@ -44,6 +45,15 @@ official chart notes.
 The locked operators fix Alertmanager gossip at `9094` and MongoDB at `27017`;
 semantic validation rejects different values for K3s/RKE2. Those two ports
 remain editable for raw and Docker deployments.
+
+Zabbix 7.0.28 LTS is deployed with the maintained Zabbix chart. Standalone
+profiles use its persistent PostgreSQL backend. The three-node cluster profile
+enables native Zabbix Server HA, which requires an operator-managed resilient
+PostgreSQL endpoint. Before deployment set `ZABBIX_DATABASE_HOST`,
+`ZABBIX_DATABASE_PORT`, `ZABBIX_DATABASE_USER`, `ZABBIX_DATABASE_PASSWORD`, and
+`ZABBIX_DATABASE_NAME` in the protected secret file. Its server and web
+Services remain ClusterIP so exposure is handled through the operator-managed
+ingress or LoadBalancer layer.
 
 OTLP and Graylog input Services are created as `ClusterIP`. Exposing
 OTLP/GELF/Beats/Syslog to senders outside the cluster still requires an
