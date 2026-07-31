@@ -243,7 +243,7 @@ if [[
   fi
   redis_host="${bind_address#[}"
   redis_host="${redis_host%]}"
-  REDIS_PASSWORD="$(read_secret "${secret_file}" REDIS_PASSWORD)" \
+  if REDIS_PASSWORD="$(read_secret "${secret_file}" REDIS_PASSWORD)" \
     "${PYTHON_BIN}" - "${redis_host}" "$(read_config network.ports.redis)" <<'PY'
 import os
 import socket
