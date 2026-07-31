@@ -84,6 +84,27 @@ create_grafana_secret() {
     -o yaml | kubectl apply -f -
 }
 
+resolve_config_path() {
+  local configured_path="$1"
+  if [[ "${configured_path}" == /* ]]; then
+    printf '%s' "${configured_path}"
+  else
+    printf '%s' "${REPOSITORY_ROOT}/${configured_path}"
+  fi
+}
+
+create_public_tls_secret() {
+  local namespace="$1"
+  local tls_secret_name="$2"
+  local certificate_path="$3"
+  local private_key_path="$4"
+  kubectl -n "${namespace}" create secret tls "${tls_secret_name}" \
+    --cert="${certificate_path}" \
+    --key="${private_key_path}" \
+    --dry-run=client \
+    -o yaml | kubectl apply -f -
+}
+
 make_graylog_secret_values() {
   local secret_path="$1"
   local destination="$2"
@@ -127,10 +148,10 @@ fi
 
 namespace="$(config_value deployment.namespace)"
 secret_name="$(config_value security.kubernetesSecretName)"
+tls_mode="$(config_value tls.mode)"
+public_tls_secret_name="$(config_value tls.secretName)"
 secret_path="$(config_value security.secretFile)"
-if [[ "${secret_path}" != /* ]]; then
-  secret_path="${REPOSITORY_ROOT}/${secret_path}"
-fi
+secret_path="$(resolve_config_path "${secret_path}")"
 if [[ ! -f "${secret_path}" ]]; then
   printf 'ERROR: secret file not found: %s\n' "${secret_path}" >&2
   exit 2
@@ -139,13 +160,39 @@ fi
 check_kubernetes_version
 kubectl get namespace "${namespace}" >/dev/null 2>&1 || kubectl create namespace "${namespace}"
 
-if [[ "$(config_value tls.mode)" == "cert-manager" ]]; then
+if [[ "${tls_mode}" == "cert-manager" ]]; then
   issuer="$(config_value tls.certManager.clusterIssuer)"
   if ! kubectl get clusterissuer "${issuer}" >/dev/null 2>&1; then
     printf 'ERROR: configured ClusterIssuer does not exist: %s\n' "${issuer}" >&2
     exit 2
   fi
 fi
+
+case "${tls_mode}" in
+  cert-manager)
+    public_tls_manifest="${GENERATED_VALUES_DIR}/public-tls.values.generated.yml"
+    if [[ ! -r "${public_tls_manifest}" ]]; then
+      printf 'ERROR: generated public TLS manifest is missing: %s\n' "${public_tls_manifest}" >&2
+      exit 2
+    fi
+    kubectl -n "${namespace}" apply --filename "${public_tls_manifest}"
+    kubectl -n "${namespace}" wait \
+      --for=condition=Ready "certificate/${public_tls_secret_name}" \
+      --timeout=10m
+    ;;
+  provided)
+    certificate_path="$(resolve_config_path "$(config_value tls.provided.certificateFile)")"
+    private_key_path="$(resolve_config_path "$(config_value tls.provided.privateKeyFile)")"
+    for path in "${certificate_path}" "${private_key_path}"; do
+      if [[ ! -r "${path}" ]]; then
+        printf 'ERROR: provided TLS file is not readable: %s\n' "${path}" >&2
+        exit 2
+      fi
+    done
+    create_public_tls_secret \
+      "${namespace}" "${public_tls_secret_name}" "${certificate_path}" "${private_key_path}"
+    ;;
+esac
 
 create_grafana_secret "${namespace}" "${secret_name}" "${secret_path}"
 

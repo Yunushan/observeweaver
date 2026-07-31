@@ -277,7 +277,7 @@ class RenderTests(unittest.TestCase):
         config = load_config(ROOT / "config" / "examples" / "standalone.yml")
         with tempfile.TemporaryDirectory() as directory:
             created = render(config, directory)
-            self.assertEqual(14, len(created))
+            self.assertEqual(15, len(created))
             combined = "\n".join(path.read_text(encoding="utf-8") for path in created)
             self.assertNotIn("GRAFANA_ADMIN_PASSWORD=", combined)
             self.assertIn("PROMETHEUS_VERSION=3.13.1", combined)
@@ -647,6 +647,69 @@ class RenderTests(unittest.TestCase):
         self.assertFalse(values["postgresql"]["enabled"])
         self.assertEqual("observeweaver-secrets", values["postgresAccess"]["existingSecretName"])
         self.assertEqual("ZABBIX_DATABASE_PASSWORD", values["postgresAccess"]["secretPasswordKey"])
+
+    def test_kubernetes_public_tls_covers_grafana_graylog_and_zabbix(self) -> None:
+        config = load_config(ROOT / "config" / "examples" / "cluster.yml")
+        config["tls"]["additionalDnsNames"] = ["*.observability.example.com"]
+        config["tls"]["additionalIpAddresses"] = ["192.0.2.10"]
+        self.assertEqual([], validate_config(config).errors)
+        with tempfile.TemporaryDirectory() as directory:
+            render(config, directory)
+            kubernetes_root = Path(directory) / "production" / "kubernetes"
+            certificate = yaml.safe_load(
+                (kubernetes_root / "public-tls.values.generated.yml").read_text(encoding="utf-8")
+            )
+            grafana = yaml.safe_load(
+                (kubernetes_root / "kube-prometheus-stack.values.generated.yml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            graylog = yaml.safe_load(
+                (kubernetes_root / "graylog.values.generated.yml").read_text(encoding="utf-8")
+            )
+            zabbix = yaml.safe_load(
+                (kubernetes_root / "zabbix.values.generated.yml").read_text(encoding="utf-8")
+            )
+        spec = certificate["items"][0]["spec"]
+        self.assertEqual("observeweaver-public-tls", spec["secretName"])
+        self.assertEqual("letsencrypt-production", spec["issuerRef"]["name"])
+        self.assertEqual(
+            [
+                "grafana.observability.example.com",
+                "graylog.observability.example.com",
+                "zabbix.observability.example.com",
+                "*.observability.example.com",
+            ],
+            spec["dnsNames"],
+        )
+        self.assertEqual(["192.0.2.10"], spec["ipAddresses"])
+        self.assertEqual(
+            "observeweaver-public-tls", grafana["grafana"]["ingress"]["tls"][0]["secretName"]
+        )
+        self.assertEqual(
+            "observeweaver-public-tls", graylog["ingress"]["web"]["tls"][0]["secretName"]
+        )
+        self.assertTrue(zabbix["ingress"]["enabled"])
+        self.assertEqual("nginx", zabbix["ingress"]["ingressClassName"])
+        self.assertEqual("zabbix.observability.example.com", zabbix["ingress"]["hosts"][0]["host"])
+        self.assertEqual("observeweaver-public-tls", zabbix["ingress"]["tls"][0]["secretName"])
+
+    def test_kubernetes_accepts_provided_public_tls_files(self) -> None:
+        config = load_config(ROOT / "config" / "examples" / "k3s-standalone.yml")
+        config["tls"]["mode"] = "provided"
+        config["tls"]["provided"] = {
+            "certificateFile": "/etc/observeweaver/tls/fullchain.crt",
+            "privateKeyFile": "/etc/observeweaver/tls/private.key",
+        }
+        self.assertEqual([], validate_config(config).errors)
+
+    def test_tls_rejects_invalid_wildcard_and_ip_sans(self) -> None:
+        config = load_config(ROOT / "config" / "examples" / "cluster.yml")
+        config["tls"]["additionalDnsNames"] = ["api.*.example.com"]
+        config["tls"]["additionalIpAddresses"] = ["not-an-ip"]
+        result = validate_config(config)
+        self.assertTrue(any("additionalDnsNames" in error for error in result.errors))
+        self.assertTrue(any("additionalIpAddresses" in error for error in result.errors))
 
     def test_kubernetes_redis_cluster_renders_sentinel_and_pvc(self) -> None:
         config = load_config(ROOT / "config" / "examples" / "cluster.yml")

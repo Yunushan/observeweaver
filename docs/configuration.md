@@ -79,14 +79,23 @@ before deployment.
 
 ## TLS modes
 
-- `provided`: raw/Docker production mode. The configured external reverse
-  proxy or load balancer owns the certificate/key paths and VIP.
-- `cert-manager`: K3s/RKE2 production mode; the named ClusterIssuer must
-  already exist.
+- `provided`: on K3s/RKE2, the installer imports `provided.certificateFile`
+  (a PEM/CRT leaf plus any intermediate chain) and `provided.privateKeyFile`
+  into `tls.secretName` as a `kubernetes.io/tls` Secret. Grafana, Graylog, and
+  Zabbix Ingresses reference the same Secret. On raw/Docker, the configured
+  external reverse proxy or load balancer owns those file paths and the VIP.
+- `cert-manager`: K3s/RKE2 production mode. The installer creates one
+  `Certificate` named `tls.secretName` using the named existing `ClusterIssuer`;
+  it covers enabled `grafana`, `graylog`, and `zabbix` DNS names plus
+  `additionalDnsNames` and `additionalIpAddresses`.
 - `disabled`: lab only; validation rejects it in production.
 
-External termination does not automatically secure backend traffic. See
-`docs/security.md` for east-west requirements.
+For a wildcard, set `additionalDnsNames` to `*.example.com` and use a
+DNS-01-capable issuer. For literal IP addresses, set `additionalIpAddresses`
+only when the issuer supports IP SANs; application Ingress routes remain
+DNS-host based, so an external proxy/load balancer must route IP clients to the
+desired hostname/backend. External termination does not automatically secure
+backend traffic. See `docs/security.md` for east-west requirements.
 
 ## Validation
 

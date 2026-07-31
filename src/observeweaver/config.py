@@ -155,6 +155,15 @@ def _is_dns_name(value: Any) -> bool:
     return False
 
 
+def _is_dns_name_or_wildcard(value: Any) -> bool:
+    """Accept a normal DNS name or a single-label wildcard DNS name."""
+    if not isinstance(value, str):
+        return False
+    if value.startswith("*."):
+        return _is_dns_name(value[2:])
+    return _is_dns_name(value)
+
+
 def _require_mapping(config: dict[str, Any], key: str, result: ValidationResult) -> dict:
     value = config.get(key)
     if not isinstance(value, dict):
@@ -667,10 +676,22 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
         result.errors.append("tls.mode: cannot be disabled in production.")
     if tls_mode == "cert-manager" and engine not in {"k3s", "rke2"}:
         result.errors.append("tls.mode=cert-manager is only valid for K3s or RKE2.")
-    if tls_mode == "provided" and engine in {"k3s", "rke2"}:
+    tls_secret_name = tls.get("secretName")
+    if not isinstance(tls_secret_name, str) or not NODE_NAME_RE.fullmatch(tls_secret_name):
+        result.errors.append("tls.secretName: must be a valid Kubernetes secret name.")
+    additional_dns_names = tls.get("additionalDnsNames", [])
+    if not isinstance(additional_dns_names, list) or not all(
+        _is_dns_name_or_wildcard(name) for name in additional_dns_names
+    ):
         result.errors.append(
-            "K3s/RKE2 currently requires tls.mode=cert-manager; provided "
-            "certificates are not rendered into the charts."
+            "tls.additionalDnsNames: must contain valid DNS names or wildcard DNS names."
+        )
+    additional_ip_addresses = tls.get("additionalIpAddresses", [])
+    if not isinstance(additional_ip_addresses, list) or not all(
+        _is_ip(address) for address in additional_ip_addresses
+    ):
+        result.errors.append(
+            "tls.additionalIpAddresses: must contain valid IPv4 or IPv6 addresses."
         )
     if tls_mode == "cert-manager" and not _get(
         config, "tls.certManager.clusterIssuer"
@@ -690,13 +711,14 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
                 "provided TLS."
             )
     if environment == "production":
-        expected_tls_mode = (
-            "cert-manager" if engine in {"k3s", "rke2"} else "provided"
+        allowed_tls_modes = (
+            {"cert-manager", "provided"} if engine in {"k3s", "rke2"} else {"provided"}
         )
-        if tls_mode != expected_tls_mode:
+        if tls_mode not in allowed_tls_modes:
+            expected_tls_modes = " or ".join(repr(mode) for mode in sorted(allowed_tls_modes))
             result.errors.append(
                 f"tls.mode: production {engine} deployments require "
-                f"{expected_tls_mode!r}."
+                f"{expected_tls_modes}."
             )
 
     if mode == "standalone":

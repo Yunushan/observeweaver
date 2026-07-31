@@ -55,6 +55,9 @@ network:
 
 tls:
   mode: provided
+  secretName: observeweaver-public-tls
+  additionalDnsNames: []
+  additionalIpAddresses: []
   provided:
     certificateFile: /etc/observeweaver/tls/fullchain.pem
     privateKeyFile: /etc/observeweaver/tls/private.key

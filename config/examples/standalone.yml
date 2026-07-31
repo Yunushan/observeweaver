@@ -62,6 +62,9 @@ network:
 tls:
   # Docker exposes HTTP services; terminate HTTPS at an external reverse proxy.
   mode: provided
+  secretName: observeweaver-public-tls
+  additionalDnsNames: []
+  additionalIpAddresses: []
   provided:
     certificateFile: /etc/observeweaver/tls/fullchain.pem
     privateKeyFile: /etc/observeweaver/tls/private.key

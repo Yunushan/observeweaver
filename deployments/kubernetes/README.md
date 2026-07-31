@@ -16,6 +16,22 @@ stateful stack is scheduled to Linux nodes.
 - Existing `ClusterIssuer` when `tls.mode` is `cert-manager`.
 - At least three schedulable Linux nodes for the HA example.
 
+## Public TLS
+
+Grafana, Graylog, and Zabbix use the single TLS Secret named by
+`tls.secretName`. With `tls.mode: cert-manager`, the installer applies the
+generated `Certificate` and waits for it to become ready before installing the
+charts. The referenced existing `ClusterIssuer` owns ACME configuration and
+renewal. A wildcard in `tls.additionalDnsNames` requires that issuer to use
+DNS-01.
+
+With `tls.mode: provided`, the installer reads the configured PEM/CRT full
+chain and private-key file only at deployment time, creates or updates the TLS
+Secret, and never places certificate material in generated values. For IP SANs,
+add literal addresses to `tls.additionalIpAddresses` only when the issuer and
+ingress path support them; the generated application Ingress routes remain
+hostname-based.
+
 The installer downloads exact chart archives and verifies their SHA-256
 digests. It installs:
 
