@@ -13,9 +13,13 @@ telemetry, log, and data services.
 - synchronized DNS/time and explicit firewall rules
 
 Ubuntu 22.04, 24.04, and 26.04 plus Enterprise Linux 9 and 10 (Rocky,
-AlmaLinux, or RHEL) are supported for raw installs. Enterprise Linux 8 remains
-supported through Docker/K3s/RKE2, but raw installation is rejected because
-its system DNF Python bindings are incompatible with maintained Ansible Core.
+AlmaLinux, or RHEL) are supported for raw installs. MongoDB 8.0 is only
+vendor-supported through Ubuntu 24.04 and Enterprise Linux 9, so a raw
+Graylog install on Ubuntu 26.04 or Enterprise Linux 10 must use an
+operator-managed MongoDB endpoint (`dependencies.mongodb.external: true` and
+`MONGODB_URI`). Enterprise Linux 8 remains supported through Docker/K3s/RKE2,
+but raw installation is rejected because its system DNF Python bindings are
+incompatible with maintained Ansible Core.
 
 ```bash
 python3 -m venv .venv
@@ -40,6 +44,10 @@ CONFIG_FILE=config/examples/raw-cluster.yml scripts/observeweaver.sh deploy --ye
 - Supply a load balancer/VIP implementation. ObserveWeaver does not guess
   interface names, VRRP IDs, or corporate routing policy.
 - Configure an external HA PostgreSQL endpoint for Grafana replicas.
+- For raw Graylog on Ubuntu 26.04 or Enterprise Linux 10, set
+  `dependencies.mongodb.external: true` and set `MONGODB_URI` in the protected
+  secret file. The raw role skips local MongoDB installation and replica-set
+  bootstrap in that mode.
 - Configure an external PostgreSQL endpoint for Zabbix, then set
   `ZABBIX_DATABASE_HOST`, `ZABBIX_DATABASE_PORT`, `ZABBIX_DATABASE_USER`,
   `ZABBIX_DATABASE_PASSWORD`, and `ZABBIX_DATABASE_NAME` in the protected

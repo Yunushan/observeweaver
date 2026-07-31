@@ -14,6 +14,7 @@ chartImages:
   "mongo:8.0.28": "mongo@sha256:5351bff2b5d1563e3fa603a74b9be85ef9323e10aeb0b45cea933a93876e77fd"
   "otel/opentelemetry-collector-contrib:0.157.0": "otel/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6"
   "postgres:16": "postgres@sha256:33f923b05f64ca54ac4401c01126a6b92afe839a0aa0a52bc5aeb5cc958e5f20"
+  "postgres:17": "postgres@sha256:cb875afe6d2e8593c28c22d37d0fd7aaf035c43a42e2f7792cd4c09ceb6beac5"
   "quay.io/kiwigrid/k8s-sidecar:2.10.0": "quay.io/kiwigrid/k8s-sidecar@sha256:21b9fe7bb29d65caf2445ccbf96ff6eda5e589a92bd8f5188f957fe75b551d72"
   "quay.io/mongodb/mongodb-kubernetes:1.6.1": "quay.io/mongodb/mongodb-kubernetes@sha256:22e4ae882cff477adc99cb74bc979cb112d9e0abf37509298a3839fea274ae75"
   "quay.io/prometheus-operator/prometheus-operator:v0.92.1": "quay.io/prometheus-operator/prometheus-operator@sha256:7d9247d2351480fc74587e24681578f815f387bafb2ee7b86a852a94c4cd3774"

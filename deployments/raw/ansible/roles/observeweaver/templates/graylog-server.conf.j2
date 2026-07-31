@@ -13,7 +13,11 @@ http_bind_address = {{ endpoint_address }}:{{ observeweaver.network.ports.graylo
 http_publish_uri = http://{{ endpoint_address }}:{{ observeweaver.network.ports.graylogHttp }}/
 http_external_uri = {{ 'http' if observeweaver.tls.mode == 'disabled' else 'https' }}://graylog.{{ observeweaver.network.domain }}/
 
+{% if observeweaver.dependencies.mongodb.external %}
+mongodb_uri = {{ lookup('ansible.builtin.ini', 'MONGODB_URI', type='properties', file=observeweaver_secret_file) }}
+{% else %}
 mongodb_uri = mongodb://graylog:{{ lookup('ansible.builtin.ini', 'MONGODB_ROOT_PASSWORD', type='properties', file=observeweaver_secret_file) }}@{% for host in groups.get('mongodb', []) %}{{ host }}:{{ observeweaver.network.ports.mongodb }}{{ ',' if not loop.last else '' }}{% endfor %}/graylog?authSource=admin{% if observeweaver.deployment.mode == 'cluster' %}&replicaSet=observeweaver{% endif %}
+{% endif %}
 
 elasticsearch_hosts = {% for host in groups.get('opensearch', []) %}https://admin:{{ lookup('ansible.builtin.ini', 'OPENSEARCH_INITIAL_ADMIN_PASSWORD', type='properties', file=observeweaver_secret_file) }}@{{ host }}:{{ observeweaver.network.ports.opensearch }}{{ ',' if not loop.last else '' }}{% endfor %}
 

@@ -8,16 +8,16 @@ has identical CI depth.
 |---|---:|---:|---:|---:|---|
 | Ubuntu 22.04 | Full | Full | Full | Full | 1 |
 | Ubuntu 24.04 | Full | Full | Full | Full | 1 |
-| Ubuntu 26.04 | Full | Full | Full | Full | 1/2 |
+| Ubuntu 26.04 | Full with external MongoDB | Full | Full | Full | 1/2 |
 | Rocky Linux 8 | No | Full | Full | Full | 2 |
 | Rocky Linux 9 | Full | Full | Full | Full | 1/2 |
-| Rocky Linux 10 | Full | Full | Full | Full | 1/2 |
+| Rocky Linux 10 | Full with external MongoDB | Full | Full | Full | 1/2 |
 | AlmaLinux 8 | No | Full | Full | Full | 2 |
 | AlmaLinux 9 | Full | Full | Full | Full | 1/2 |
-| AlmaLinux 10 | Full | Full | Full | Full | 1/2 |
+| AlmaLinux 10 | Full with external MongoDB | Full | Full | Full | 1/2 |
 | RHEL 8 | No | Full | Full | Full | 2; licensed runner needed |
 | RHEL 9 | Compatible | Full | Full | Full | 2; licensed runner needed |
-| RHEL 10 | Compatible | Full | Full | Full | 2; licensed runner needed |
+| RHEL 10 | Compatible with external MongoDB | Full | Full | Full | 2; licensed runner needed |
 | Windows 10/11 | Selected components | WSL2 Linux | No server | Client/agent only | 2 |
 | Windows Server 2019/2022/2025 | Selected components | Linux VM | No server | Client/agent only | 2/3 |
 
@@ -48,6 +48,11 @@ workloads use Linux images and Linux nodes.
 - Raw installation on Enterprise Linux 8 is rejected because the maintained
   Ansible Core target runtime and EL8's system DNF Python bindings are
   incompatible. Use EL9 or a Linux-container deployment on EL8.
+- MongoDB 8.0's upstream package support currently ends at Ubuntu 24.04 and
+  Enterprise Linux 9. For raw Graylog on Ubuntu 26.04 or Enterprise Linux 10,
+  set `dependencies.mongodb.external: true` and provide a supported,
+  operator-managed `MONGODB_URI`; Docker, K3s, and RKE2 use their own tested
+  containerized MongoDB path.
 
 Tiers describe automation depth, not a claim that every OS/runtime combination
 is started in CI: tier 1 has maintained configuration, lint, render, and
