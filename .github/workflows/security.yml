@@ -99,8 +99,8 @@ jobs:
               stable,
               flags=re.MULTILINE,
           )
-          if len(image_locks) != 10:
-              raise SystemExit("Expected exactly ten immutable Docker image locks.")
+          if len(image_locks) != 11:
+              raise SystemExit("Expected exactly eleven immutable Docker image locks.")
 
           kubernetes_locks = pathlib.Path(
               "versions/kubernetes-images.lock.yml"
@@ -110,8 +110,8 @@ jobs:
               kubernetes_locks,
               flags=re.MULTILINE,
           )
-          if len(kubernetes_images) != 24:
-              raise SystemExit("Expected exactly 24 immutable Kubernetes image locks.")
+          if len(kubernetes_images) != 25:
+              raise SystemExit("Expected exactly 25 immutable Kubernetes image locks.")
 
           bad = []
           for path in pathlib.Path(".github/workflows").glob("*.y*ml"):

@@ -217,6 +217,37 @@ services:
       - no-new-privileges:true
     logging: *default-logging
 
+  redis:
+    image: ${REDIS_IMAGE:?REDIS_IMAGE is required}
+    profiles: [redis]
+    <<: *default-restart
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        exec redis-server --bind 0.0.0.0 --port "$${REDIS_PORT:-6379}"
+        --appendonly yes --appendfsync everysec --protected-mode yes
+        --requirepass "$${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test \"$$(redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping)\" = PONG",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
   mongodb:
     image: ${MONGODB_IMAGE:?MONGODB_IMAGE is required}
     profiles: [mongodb]
@@ -368,3 +399,4 @@ volumes:
   graylog-journal:
   postgresql-data:
   zabbix-postgresql-data:
+  redis-data:

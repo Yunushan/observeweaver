@@ -110,6 +110,47 @@
       changed_when: false
       when: inventory_hostname in groups.get('opensearch', [])
 
+    - name: Check Redis service
+      ansible.builtin.command:
+        argv: [systemctl, is-active, redis]
+      register: redis_service_status
+      changed_when: false
+      when:
+        - observeweaver.components.redis.enabled | bool
+        - inventory_hostname in groups.get('redis', [])
+
+    - name: Check authenticated Redis readiness
+      ansible.builtin.command:
+        argv:
+          - "{{ observeweaver_install_root }}/redis-{{ observeweaver.components.redis.version }}/bin/redis-cli"
+          - --no-auth-warning
+          - --host
+          - 127.0.0.1
+          - --port
+          - "{{ observeweaver.network.ports.redis | string }}"
+          - -a
+          - >-
+            {{ lookup('ansible.builtin.ini', 'REDIS_PASSWORD', type='properties',
+            file=observeweaver_secret_file) }}
+          - PING
+      register: redis_readiness
+      changed_when: false
+      failed_when: redis_readiness.stdout | trim != 'PONG'
+      no_log: true
+      when:
+        - observeweaver.components.redis.enabled | bool
+        - inventory_hostname in groups.get('redis', [])
+
+    - name: Check Redis Sentinel service in cluster mode
+      ansible.builtin.command:
+        argv: [systemctl, is-active, redis-sentinel]
+      register: redis_sentinel_service_status
+      changed_when: false
+      when:
+        - observeweaver.components.redis.enabled | bool
+        - observeweaver.deployment.mode == 'cluster'
+        - inventory_hostname in groups.get('redis', [])
+
     - name: Check Zabbix Server service
       ansible.builtin.command:
         argv:

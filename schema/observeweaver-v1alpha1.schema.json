@@ -179,7 +179,9 @@
             "graylogSyslogUdp",
             "opensearch",
             "opensearchTransport",
-            "mongodb"
+            "mongodb",
+            "redis",
+            "redisSentinel"
           ],
           "additionalProperties": {
             "type": "integer",
@@ -243,7 +245,8 @@
             "opensearch",
             "mongodb",
             "postgresql",
-            "zabbixPostgresql"
+            "zabbixPostgresql",
+            "redis"
           ],
           "additionalProperties": {
             "type": "string",
@@ -294,7 +297,8 @@
         "opentelemetry",
         "zabbix",
         "graylog",
-        "opensearch"
+        "opensearch",
+        "redis"
       ],
       "additionalProperties": false,
       "properties": {
@@ -318,6 +322,9 @@
         },
         "opensearch": {
           "$ref": "#/$defs/opensearchComponent"
+        },
+        "redis": {
+          "$ref": "#/$defs/component"
         }
       }
     },

@@ -27,6 +27,7 @@ COMPONENTS = {
     "zabbix",
     "graylog",
     "opensearch",
+    "redis",
 }
 REQUIRED_PORTS = {
     "prometheus",
@@ -50,6 +51,8 @@ REQUIRED_PORTS = {
     "opensearch",
     "opensearchTransport",
     "mongodb",
+    "redis",
+    "redisSentinel",
 }
 NODE_ROLES = {"control", "metrics", "telemetry", "logs", "data", "ingress"}
 HOSTNAME_RE = re.compile(
@@ -69,6 +72,7 @@ REQUIRED_STORAGE_SIZES = {
     "mongodb",
     "postgresql",
     "zabbixPostgresql",
+    "redis",
 }
 SUPPORTED_PLATFORM_VERSIONS = {
     "ubuntu": {"22.04", "24.04", "26.04"},
@@ -86,6 +90,7 @@ TESTED_COMPONENT_VERSIONS = {
     "zabbix": "7.0.28",
     "graylog": "7.1.6",
     "opensearch": "2.19.5",
+    "redis": "8.8.0",
 }
 TESTED_DEPENDENCY_VERSIONS = {
     "mongodb": "8.0.28",
@@ -331,6 +336,7 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
             "zabbix": "metrics",
             "graylog": "logs",
             "opensearch": "data",
+            "redis": "data",
         }
         for component_name, role in role_requirements.items():
             if not _get(config, f"components.{component_name}.enabled", False):
@@ -491,6 +497,13 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
             "K3s/RKE2 provides OpenSearch through Graylog Data Node; enable "
             "Graylog or disable this OpenSearch profile."
         )
+    if _get(config, "components.redis.enabled", False):
+        redis_replicas = _get(config, "components.redis.replicas", 1)
+        if mode == "cluster" and redis_replicas != 3:
+            result.errors.append(
+                "components.redis.replicas: cluster mode uses the Redis Sentinel "
+                "profile and requires exactly 3 members."
+            )
     if engine in {"k3s", "rke2"} and isinstance(ports, dict):
         fixed_chart_ports = {
             "alertmanagerCluster": 9094,
@@ -513,6 +526,15 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
             "Graylog Server has no supported native Windows installation. Set "
             "components.graylog.enabled=false for a native Windows node, or use a Linux "
             "VM/WSL2/remote Linux deployment for the full stack."
+        )
+    if (
+        family == "windows"
+        and engine == "raw"
+        and _get(config, "components.redis.enabled", False)
+    ):
+        result.errors.append(
+            "Redis has no supported native Windows deployment in ObserveWeaver. "
+            "Use Docker on WSL2/Linux VM/remote Linux, or a Linux server."
         )
     if family == "windows" and engine == "raw" and mode == "cluster":
         result.errors.append(

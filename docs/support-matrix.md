@@ -24,8 +24,9 @@ has identical CI depth.
 ## Native Windows subset
 
 Prometheus, Alertmanager, Grafana, OTel Collector, and OpenSearch publish
-Windows artifacts. Graylog Server does not. MongoDB on Windows does not change
-that limitation. The full stack therefore needs Linux.
+Windows artifacts. Graylog Server and Redis do not have supported native
+ObserveWeaver deployment paths. MongoDB on Windows does not change that
+limitation. The full stack therefore needs Linux.
 
 Windows 10 requires an active Microsoft Extended Security Updates entitlement
 or another vendor-supported servicing channel. Windows 11 is preferred for new
@@ -53,6 +54,9 @@ workloads use Linux images and Linux nodes.
   set `dependencies.mongodb.external: true` and provide a supported,
   operator-managed `MONGODB_URI`; Docker, K3s, and RKE2 use their own tested
   containerized MongoDB path.
+- Redis 8.8.0 is built from the checksum-verified upstream source for raw Linux
+  and uses an immutable official container image for Docker/K3s/RKE2. Redis
+  cluster mode requires exactly three Redis members for Sentinel failover.
 
 Tiers describe automation depth, not a claim that every OS/runtime combination
 is started in CI: tier 1 has maintained configuration, lint, render, and

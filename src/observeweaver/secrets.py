@@ -16,6 +16,7 @@ SECRET_KEYS = (
     "MONGODB_ROOT_PASSWORD",
     "MONGODB_REPLICA_SET_KEY",
     "MONGODB_URI",
+    "REDIS_PASSWORD",
     "POSTGRES_PASSWORD",
     "ZABBIX_DATABASE_HOST",
     "ZABBIX_DATABASE_PORT",
@@ -63,6 +64,7 @@ def generate_secret_values() -> dict[str, str]:
         # Empty selects the locally managed MongoDB replica set. Raw installs on
         # newer host releases require an operator-managed MongoDB URI instead.
         "MONGODB_URI": "",
+        "REDIS_PASSWORD": _password(),
         "POSTGRES_PASSWORD": _password(),
         # Leave the host empty for embedded databases. Cluster HA profiles require
         # the operator to set it to a resilient external PostgreSQL endpoint.

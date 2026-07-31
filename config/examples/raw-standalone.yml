@@ -50,6 +50,8 @@ network:
     opensearch: 9200
     opensearchTransport: 9300
     mongodb: 27017
+    redis: 6379
+    redisSentinel: 26379
 
 tls:
   mode: provided
@@ -71,6 +73,7 @@ storage:
     mongodb: 30Gi
     postgresql: 20Gi
     zabbixPostgresql: 20Gi
+    redis: 20Gi
 
 retention:
   metricsDays: 30
@@ -111,6 +114,10 @@ components:
     version: "2.19.5"
     replicas: 1
     javaOpts: -Xms2g -Xmx2g
+  redis:
+    enabled: true
+    version: "8.8.0"
+    replicas: 1
 
 dependencies:
   mongodb:

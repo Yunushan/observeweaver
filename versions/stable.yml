@@ -1,6 +1,6 @@
 # Tested application pinset. Update compatibility.yml and run the complete
 # integration matrix before changing a Graylog search-backend version.
-updated: "2026-07-30"
+updated: "2026-07-31"
 
 applications:
   prometheus: "3.13.1"
@@ -11,6 +11,7 @@ applications:
   graylog: "7.1.6"
   opensearchGraylogBackend: "2.19.5"
   mongodb: "8.0.28"
+  redis: "8.8.0"
   postgresql: "17"
 
 containerImages:
@@ -25,6 +26,7 @@ containerImages:
   mongodb: "mongo@sha256:5351bff2b5d1563e3fa603a74b9be85ef9323e10aeb0b45cea933a93876e77fd"
   opensearch: "opensearchproject/opensearch@sha256:4ee82ecb35d837a6186c81aaa64c8a5bce71aa956edbd87f1f684ab56af52c44"
   graylog: "graylog/graylog@sha256:b9a4fd841e4c49c148043265f579554a3bdadf8137ff381b686c194ccb9a3365"
+  redis: "redis@sha256:234c902a2db49461a129e2d4aeff85b28cf20187ed274a67f6e50995fa713c7b"
 
 profiles:
   opensearchGeneralPurpose:

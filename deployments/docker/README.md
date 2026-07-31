@@ -11,6 +11,11 @@ Zabbix 7.0.28 LTS runs as a Zabbix Server, Nginx web interface, and dedicated
 PostgreSQL service when the `zabbix` profile is enabled. Its web UI is exposed
 on port 8080 and its server endpoint on port 10051 by default.
 
+Redis 8.8.0 runs with generated password authentication, AOF persistence, and
+an internal-only Docker network endpoint. It is deliberately not published to
+the host; use a workload attached to the backend network or `docker compose
+exec redis redis-cli` for administrative access.
+
 ## Multi-host cluster (beta)
 
 Docker Compose does not schedule across hosts. ObserveWeaver therefore renders
@@ -36,6 +41,7 @@ unauthenticated. Keep the hosts on a trusted, isolated backend network and
 enforce the following firewall rules before deployment:
 
 - MongoDB 27017 and OpenSearch 9200/9300 to data-node addresses only;
+- Redis 6379 and Sentinel 26379 to data-node/workload addresses only;
 - Alertmanager 9094 TCP+UDP to metrics-node addresses only;
 - administrative HTTP ports to management/ingress networks only;
 - GELF/syslog/OTLP to the intended source networks only.
@@ -52,3 +58,7 @@ Zabbix Server HA is scheduled on the metrics nodes. Before deployment, set
 `ZABBIX_DATABASE_PASSWORD`, and `ZABBIX_DATABASE_NAME` in the protected secret
 file to a resilient external PostgreSQL service. The database must provide its
 own failover; Compose cannot reschedule a failed service to another host.
+
+Redis cluster mode runs one primary, two replicas, and a Sentinel on every
+Redis data member. Connect clients through Sentinel (`26379`) and do not pin a
+client to the initial `obs-01` primary; Sentinel can promote either replica.

@@ -2,6 +2,7 @@ schemaVersion: 1
 # Every image emitted by the chart locks in versions/stable.yml for the default
 # production cluster profile. The Helm post-renderer rejects unknown images.
 chartImages:
+  "redis:8.8.0": "redis@sha256:234c902a2db49461a129e2d4aeff85b28cf20187ed274a67f6e50995fa713c7b"
   "alpine:3.23": "alpine@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40"
   "busybox:latest": "busybox@sha256:fd8d9aa63ba2f0982b5304e1ee8d3b90a210bc1ffb5314d980eb6962f1a9715d"
   "curlimages/curl:8.17.0": "curlimages/curl@sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40"

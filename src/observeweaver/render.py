@@ -24,28 +24,25 @@ DOCKER_IMAGE_TAGS = {
     "mongodb": "mongo:8.0.28",
     "opensearch": "opensearchproject/opensearch:2.19.5",
     "graylog": "graylog/graylog:7.1.6",
+    "redis": "redis:8.8.0",
 }
 
 DOCKER_IMAGE_LOCKS = {
     "prometheus": (
-        "prom/prometheus@sha256:"
-        "3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893"
+        "prom/prometheus@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893"
     ),
     "alertmanager": (
-        "prom/alertmanager@sha256:"
-        "9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d"
+        "prom/alertmanager@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d"
     ),
     "grafana": (
-        "grafana/grafana@sha256:"
-        "7cb8c64c4d57a57e734073f3cc94620adb24a0acb929bd80ba9f14017e3a975b"
+        "grafana/grafana@sha256:7cb8c64c4d57a57e734073f3cc94620adb24a0acb929bd80ba9f14017e3a975b"
     ),
     "opentelemetry": (
         "otel/opentelemetry-collector-contrib@sha256:"
         "f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6"
     ),
     "postgresql": (
-        "postgres@sha256:"
-        "a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d"
+        "postgres@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d"
     ),
     "zabbixServer": (
         "zabbix/zabbix-server-pgsql@sha256:"
@@ -55,18 +52,15 @@ DOCKER_IMAGE_LOCKS = {
         "zabbix/zabbix-web-nginx-pgsql@sha256:"
         "4d109f30358363e4483d4aac43eeec80eb4ec605c9d300f4c235475056c5b06e"
     ),
-    "mongodb": (
-        "mongo@sha256:"
-        "5351bff2b5d1563e3fa603a74b9be85ef9323e10aeb0b45cea933a93876e77fd"
-    ),
+    "mongodb": ("mongo@sha256:5351bff2b5d1563e3fa603a74b9be85ef9323e10aeb0b45cea933a93876e77fd"),
     "opensearch": (
         "opensearchproject/opensearch@sha256:"
         "4ee82ecb35d837a6186c81aaa64c8a5bce71aa956edbd87f1f684ab56af52c44"
     ),
     "graylog": (
-        "graylog/graylog@sha256:"
-        "b9a4fd841e4c49c148043265f579554a3bdadf8137ff381b686c194ccb9a3365"
+        "graylog/graylog@sha256:b9a4fd841e4c49c148043265f579554a3bdadf8137ff381b686c194ccb9a3365"
     ),
+    "redis": ("redis@sha256:234c902a2db49461a129e2d4aeff85b28cf20187ed274a67f6e50995fa713c7b"),
 }
 
 
@@ -110,6 +104,7 @@ def _docker_env(config: dict[str, Any]) -> str:
             "zabbix",
             "graylog",
             "opensearch",
+            "redis",
         )
         if _component(config, name)["enabled"]
     ]
@@ -117,34 +112,26 @@ def _docker_env(config: dict[str, Any]) -> str:
         active_profiles.append("mongodb")
     entries = {
         "OBSERVEWEAVER_DOMAIN": config["network"]["domain"],
-        "OBSERVEWEAVER_SCHEME": "https"
-        if config["tls"]["mode"] != "disabled"
-        else "http",
+        "OBSERVEWEAVER_SCHEME": "https" if config["tls"]["mode"] != "disabled" else "http",
         "OBSERVEWEAVER_BIND_ADDRESS": bind_address,
         "OBSERVEWEAVER_ENDPOINT_ADDRESS": _endpoint_host(bind_address),
         "OBSERVEWEAVER_MODE": config["deployment"]["mode"],
         "PROMETHEUS_VERSION": _component(config, "prometheus")["version"],
-        "PROMETHEUS_ENABLED": str(
-            _component(config, "prometheus")["enabled"]
-        ).lower(),
+        "PROMETHEUS_ENABLED": str(_component(config, "prometheus")["enabled"]).lower(),
         "ALERTMANAGER_VERSION": _component(config, "alertmanager")["version"],
-        "ALERTMANAGER_ENABLED": str(
-            _component(config, "alertmanager")["enabled"]
-        ).lower(),
+        "ALERTMANAGER_ENABLED": str(_component(config, "alertmanager")["enabled"]).lower(),
         "GRAFANA_VERSION": _component(config, "grafana")["version"],
         "GRAFANA_ENABLED": str(_component(config, "grafana")["enabled"]).lower(),
         "OTELCOL_VERSION": _component(config, "opentelemetry")["version"],
-        "OTELCOL_ENABLED": str(
-            _component(config, "opentelemetry")["enabled"]
-        ).lower(),
+        "OTELCOL_ENABLED": str(_component(config, "opentelemetry")["enabled"]).lower(),
         "ZABBIX_VERSION": _component(config, "zabbix")["version"],
         "ZABBIX_ENABLED": str(_component(config, "zabbix")["enabled"]).lower(),
         "GRAYLOG_VERSION": _component(config, "graylog")["version"],
         "GRAYLOG_ENABLED": str(_component(config, "graylog")["enabled"]).lower(),
         "OPENSEARCH_VERSION": _component(config, "opensearch")["version"],
-        "OPENSEARCH_ENABLED": str(
-            _component(config, "opensearch")["enabled"]
-        ).lower(),
+        "OPENSEARCH_ENABLED": str(_component(config, "opensearch")["enabled"]).lower(),
+        "REDIS_VERSION": _component(config, "redis")["version"],
+        "REDIS_ENABLED": str(_component(config, "redis")["enabled"]).lower(),
         "MONGODB_VERSION": config["dependencies"]["mongodb"]["version"],
         "POSTGRES_VERSION": config["dependencies"]["postgresql"]["version"],
         "PROMETHEUS_IMAGE": DOCKER_IMAGE_LOCKS["prometheus"],
@@ -157,6 +144,7 @@ def _docker_env(config: dict[str, Any]) -> str:
         "MONGODB_IMAGE": DOCKER_IMAGE_LOCKS["mongodb"],
         "OPENSEARCH_IMAGE": DOCKER_IMAGE_LOCKS["opensearch"],
         "GRAYLOG_IMAGE": DOCKER_IMAGE_LOCKS["graylog"],
+        "REDIS_IMAGE": DOCKER_IMAGE_LOCKS["redis"],
         "PROMETHEUS_PORT": ports["prometheus"],
         "ALERTMANAGER_PORT": ports["alertmanager"],
         "ALERTMANAGER_CLUSTER_PORT": ports["alertmanagerCluster"],
@@ -178,14 +166,12 @@ def _docker_env(config: dict[str, Any]) -> str:
         "OPENSEARCH_PORT": ports["opensearch"],
         "OPENSEARCH_TRANSPORT_PORT": ports["opensearchTransport"],
         "MONGODB_PORT": ports["mongodb"],
+        "REDIS_PORT": ports["redis"],
+        "REDIS_SENTINEL_PORT": ports["redisSentinel"],
         "PROMETHEUS_RETENTION": f"{config['retention']['metricsDays']}d",
         "GRAYLOG_RETENTION_DAYS": config["retention"]["logsDays"],
-        "GRAYLOG_ELASTICSEARCH_REPLICAS": (
-            1 if config["deployment"]["mode"] == "cluster" else 0
-        ),
-        "OPENSEARCH_JAVA_OPTS": _component(config, "opensearch").get(
-            "javaOpts", "-Xms2g -Xmx2g"
-        ),
+        "GRAYLOG_ELASTICSEARCH_REPLICAS": (1 if config["deployment"]["mode"] == "cluster" else 0),
+        "OPENSEARCH_JAVA_OPTS": _component(config, "opensearch").get("javaOpts", "-Xms2g -Xmx2g"),
         "STORAGE_CLASS": storage.get("className", ""),
         "SECRETS_FILE": config["security"]["secretFile"],
         "COMPOSE_PROFILES": ",".join(active_profiles),
@@ -219,19 +205,11 @@ def _docker_standalone_configs(config: dict[str, Any]) -> dict[str, str]:
             [
                 {
                     "job_name": "otel-collector-internal",
-                    "static_configs": [
-                        {"targets": [f"otel-collector:{ports['otelMetrics']}"]}
-                    ],
+                    "static_configs": [{"targets": [f"otel-collector:{ports['otelMetrics']}"]}],
                 },
                 {
                     "job_name": "otel-exported-metrics",
-                    "static_configs": [
-                        {
-                            "targets": [
-                                f"otel-collector:{ports['otelPrometheus']}"
-                            ]
-                        }
-                    ],
+                    "static_configs": [{"targets": [f"otel-collector:{ports['otelPrometheus']}"]}],
                 },
             ]
         )
@@ -243,11 +221,7 @@ def _docker_standalone_configs(config: dict[str, Any]) -> dict[str, str]:
     if _component(config, "alertmanager")["enabled"]:
         prometheus["alerting"] = {
             "alertmanagers": [
-                {
-                    "static_configs": [
-                        {"targets": [f"alertmanager:{ports['alertmanager']}"]}
-                    ]
-                }
+                {"static_configs": [{"targets": [f"alertmanager:{ports['alertmanager']}"]}]}
             ]
         }
     alertmanager = {
@@ -262,9 +236,7 @@ def _docker_standalone_configs(config: dict[str, Any]) -> dict[str, str]:
         "receivers": [{"name": "default"}],
     }
     otel = {
-        "extensions": {
-            "health_check": {"endpoint": f"0.0.0.0:{ports['otelHealth']}"}
-        },
+        "extensions": {"health_check": {"endpoint": f"0.0.0.0:{ports['otelHealth']}"}},
         "receivers": {
             "otlp": {
                 "protocols": {
@@ -316,22 +288,26 @@ def _docker_standalone_configs(config: dict[str, Any]) -> dict[str, str]:
             },
         },
     }
-    prometheus_datasources = [
-        {
-            "name": "Prometheus",
-            "uid": "prometheus",
-            "type": "prometheus",
-            "access": "proxy",
-            "url": f"http://prometheus:{ports['prometheus']}",
-            "isDefault": True,
-            "editable": False,
-            "jsonData": {
-                "httpMethod": "POST",
-                "prometheusType": "Prometheus",
-                "timeInterval": "15s",
-            },
-        }
-    ] if _component(config, "prometheus")["enabled"] else []
+    prometheus_datasources = (
+        [
+            {
+                "name": "Prometheus",
+                "uid": "prometheus",
+                "type": "prometheus",
+                "access": "proxy",
+                "url": f"http://prometheus:{ports['prometheus']}",
+                "isDefault": True,
+                "editable": False,
+                "jsonData": {
+                    "httpMethod": "POST",
+                    "prometheusType": "Prometheus",
+                    "timeInterval": "15s",
+                },
+            }
+        ]
+        if _component(config, "prometheus")["enabled"]
+        else []
+    )
     datasource = {
         "apiVersion": 1,
         "deleteDatasources": [{"name": "Prometheus", "orgId": 1}],
@@ -388,6 +364,7 @@ def _inventory(config: dict[str, Any]) -> str:
         "opentelemetry": "telemetry",
         "graylog": "logs",
         "opensearch": "data",
+        "redis": "data",
     }
     for component_name, role in component_roles.items():
         eligible = groups.get(role, [])
@@ -437,6 +414,198 @@ def _group_vars(config: dict[str, Any]) -> str:
     )
 
 
+def _redis_kubernetes_manifest(config: dict[str, Any]) -> dict[str, Any]:
+    """Render a password-protected Redis StatefulSet and Sentinel HA topology."""
+    if not _component(config, "redis")["enabled"]:
+        return {"apiVersion": "v1", "kind": "List", "items": []}
+
+    ports = config["network"]["ports"]
+    storage = config["storage"]
+    secret_name = config["security"]["kubernetesSecretName"]
+    cluster_mode = config["deployment"]["mode"] == "cluster"
+    replicas = _replicas(config, "redis")
+    labels = {"app.kubernetes.io/name": "observeweaver-redis"}
+    redis_command = (
+        """\
+set -eu
+if [ \"${HOSTNAME##*-}\" = \"0\" ]; then
+  exec redis-server --bind 0.0.0.0 --port \"${REDIS_PORT}\" --appendonly yes \\
+    --appendfsync everysec --protected-mode yes --requirepass \"${REDIS_PASSWORD}\"
+fi
+exec redis-server --bind 0.0.0.0 --port \"${REDIS_PORT}\" --appendonly yes \\
+  --appendfsync everysec --protected-mode yes --requirepass \"${REDIS_PASSWORD}\" \\
+  --masterauth \"${REDIS_PASSWORD}\" --replicaof \\
+  observeweaver-redis-0.observeweaver-redis \"${REDIS_PORT}\"
+"""
+        if cluster_mode
+        else """\
+exec redis-server --bind 0.0.0.0 --port \"${REDIS_PORT}\" --appendonly yes \\
+  --appendfsync everysec --protected-mode yes --requirepass \"${REDIS_PASSWORD}\"
+"""
+    )
+    redis_container: dict[str, Any] = {
+        "name": "redis",
+        "image": DOCKER_IMAGE_LOCKS["redis"],
+        "imagePullPolicy": "IfNotPresent",
+        "command": ["/bin/sh", "-ec", redis_command],
+        "env": [
+            {"name": "REDIS_PORT", "value": str(ports["redis"])},
+            {
+                "name": "REDIS_PASSWORD",
+                "valueFrom": {"secretKeyRef": {"name": secret_name, "key": "REDIS_PASSWORD"}},
+            },
+        ],
+        "ports": [{"name": "redis", "containerPort": ports["redis"]}],
+        "volumeMounts": [{"name": "data", "mountPath": "/data"}],
+        "livenessProbe": {
+            "exec": {
+                "command": [
+                    "/bin/sh",
+                    "-ec",
+                    'test "$(redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping)" = PONG',
+                ]
+            },
+            "initialDelaySeconds": 20,
+            "periodSeconds": 10,
+        },
+        "readinessProbe": {
+            "exec": {
+                "command": [
+                    "/bin/sh",
+                    "-ec",
+                    'test "$(redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping)" = PONG',
+                ]
+            },
+            "initialDelaySeconds": 5,
+            "periodSeconds": 5,
+        },
+        "securityContext": {
+            "allowPrivilegeEscalation": False,
+            "readOnlyRootFilesystem": False,
+            "capabilities": {"drop": ["ALL"]},
+        },
+    }
+    containers = [redis_container]
+    if cluster_mode:
+        sentinel_command = """\
+set -eu
+cat >/tmp/sentinel.conf <<EOF
+port ${REDIS_SENTINEL_PORT}
+bind 0.0.0.0
+protected-mode yes
+sentinel monitor observeweaver observeweaver-redis-0.observeweaver-redis ${REDIS_PORT} 2
+sentinel auth-pass observeweaver ${REDIS_PASSWORD}
+sentinel down-after-milliseconds observeweaver 5000
+sentinel failover-timeout observeweaver 60000
+sentinel parallel-syncs observeweaver 1
+EOF
+exec redis-server /tmp/sentinel.conf --sentinel
+"""
+        containers.append(
+            {
+                "name": "sentinel",
+                "image": DOCKER_IMAGE_LOCKS["redis"],
+                "imagePullPolicy": "IfNotPresent",
+                "command": ["/bin/sh", "-ec", sentinel_command],
+                "env": [
+                    {"name": "REDIS_PORT", "value": str(ports["redis"])},
+                    {"name": "REDIS_SENTINEL_PORT", "value": str(ports["redisSentinel"])},
+                    {
+                        "name": "REDIS_PASSWORD",
+                        "valueFrom": {
+                            "secretKeyRef": {"name": secret_name, "key": "REDIS_PASSWORD"}
+                        },
+                    },
+                ],
+                "ports": [{"name": "sentinel", "containerPort": ports["redisSentinel"]}],
+                "securityContext": {
+                    "allowPrivilegeEscalation": False,
+                    "readOnlyRootFilesystem": False,
+                    "capabilities": {"drop": ["ALL"]},
+                },
+            }
+        )
+    stateful_set = {
+        "apiVersion": "apps/v1",
+        "kind": "StatefulSet",
+        "metadata": {"name": "observeweaver-redis", "labels": labels},
+        "spec": {
+            "serviceName": "observeweaver-redis",
+            "replicas": replicas,
+            "podManagementPolicy": "OrderedReady",
+            "selector": {"matchLabels": labels},
+            "template": {
+                "metadata": {"labels": labels},
+                "spec": {
+                    "securityContext": {"fsGroup": 999, "runAsNonRoot": True},
+                    "containers": containers,
+                },
+            },
+            "volumeClaimTemplates": [
+                {
+                    "metadata": {"name": "data"},
+                    "spec": {
+                        "accessModes": ["ReadWriteOnce"],
+                        "storageClassName": storage.get("className"),
+                        "resources": {"requests": {"storage": storage["sizes"]["redis"]}},
+                    },
+                }
+            ],
+        },
+    }
+    network_policy_ports = [{"protocol": "TCP", "port": ports["redis"]}]
+    if cluster_mode:
+        network_policy_ports.append({"protocol": "TCP", "port": ports["redisSentinel"]})
+    items: list[dict[str, Any]] = [
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {"name": "observeweaver-redis", "labels": labels},
+            "spec": {
+                "clusterIP": "None",
+                "selector": labels,
+                "ports": [{"name": "redis", "port": ports["redis"], "targetPort": "redis"}],
+            },
+        },
+        stateful_set,
+        {
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "NetworkPolicy",
+            "metadata": {"name": "observeweaver-redis-private"},
+            "spec": {
+                "podSelector": {"matchLabels": labels},
+                "policyTypes": ["Ingress"],
+                "ingress": [
+                    {
+                        "from": [{"podSelector": {}}],
+                        "ports": network_policy_ports,
+                    }
+                ],
+            },
+        },
+    ]
+    if cluster_mode:
+        items.insert(
+            1,
+            {
+                "apiVersion": "v1",
+                "kind": "Service",
+                "metadata": {"name": "observeweaver-redis-sentinel", "labels": labels},
+                "spec": {
+                    "selector": labels,
+                    "ports": [
+                        {
+                            "name": "sentinel",
+                            "port": ports["redisSentinel"],
+                            "targetPort": "sentinel",
+                        }
+                    ],
+                },
+            },
+        )
+    return {"apiVersion": "v1", "kind": "List", "items": items}
+
+
 def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
     storage = config["storage"]
     sizes = storage["sizes"]
@@ -472,9 +641,7 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
             },
             "sidecar": {
                 "datasources": {
-                    "defaultDatasourceEnabled": _component(
-                        config, "prometheus"
-                    )["enabled"]
+                    "defaultDatasourceEnabled": _component(config, "prometheus")["enabled"]
                 }
             },
         },
@@ -497,7 +664,7 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
                         }
                     }
                 },
-            }
+            },
         },
         "alertmanager": {
             "enabled": _component(config, "alertmanager")["enabled"],
@@ -518,24 +685,19 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
                         }
                     }
                 },
-            }
+            },
         },
     }
     if ingress_enabled and config["tls"]["mode"] == "cert-manager":
         issuer = config["tls"]["certManager"]["clusterIssuer"]
-        prometheus["grafana"]["ingress"]["annotations"] = {
-            "cert-manager.io/cluster-issuer": issuer
-        }
+        prometheus["grafana"]["ingress"]["annotations"] = {"cert-manager.io/cluster-issuer": issuer}
         prometheus["grafana"]["ingress"]["tls"] = [
             {
                 "secretName": "observeweaver-grafana-tls",
                 "hosts": [f"grafana.{domain}"],
             }
         ]
-    if (
-        _component(config, "grafana")["enabled"]
-        and _replicas(config, "grafana") > 1
-    ):
+    if _component(config, "grafana")["enabled"] and _replicas(config, "grafana") > 1:
         prometheus["grafana"]["env"] = {
             "GF_DATABASE_TYPE": "postgres",
             "GF_DATABASE_SSL_MODE": "require",
@@ -602,7 +764,7 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
                         "grpc": {"endpoint": f"0.0.0.0:{ports['otlpGrpc']}"},
                         "http": {"endpoint": f"0.0.0.0:{ports['otlpHttp']}"},
                     }
-                }
+                },
             },
             "processors": {
                 "memory_limiter": {
@@ -613,9 +775,7 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 "batch": {},
             },
             "exporters": {
-                "prometheus": {
-                    "endpoint": f"0.0.0.0:{ports['otelPrometheus']}"
-                },
+                "prometheus": {"endpoint": f"0.0.0.0:{ports['otelPrometheus']}"},
                 "debug": {"verbosity": "basic"},
             },
             "service": {
@@ -651,7 +811,7 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
                         "processors": ["memory_limiter", "batch"],
                         "exporters": ["debug"],
                     },
-                }
+                },
             },
         },
         "serviceMonitor": {
@@ -689,18 +849,14 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 },
             },
             "env": {
-                "GRAYLOG_HTTP_BIND_ADDRESS": (
-                    f"{ANY_IPV4}:{ports['graylogHttp']}"
-                ),
+                "GRAYLOG_HTTP_BIND_ADDRESS": (f"{ANY_IPV4}:{ports['graylogHttp']}"),
                 "GRAYLOG_ELASTICSEARCH_REPLICAS": (
                     "1" if config["deployment"]["mode"] == "cluster" else "0"
                 ),
                 "GRAYLOG_ROTATION_STRATEGY": "time",
                 "GRAYLOG_ELASTICSEARCH_MAX_TIME_PER_INDEX": "1d",
                 "GRAYLOG_RETENTION_STRATEGY": "delete",
-                "GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES": str(
-                    config["retention"]["logsDays"]
-                ),
+                "GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES": str(config["retention"]["logsDays"]),
             },
             "persistence": {
                 "enabled": True,
@@ -754,15 +910,9 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 .split("-Xmx")[-1],
             },
             "env": {
-                "GRAYLOG_DATANODE_DATANODE_HTTP_PORT": str(
-                    ports["graylogDataNode"]
-                ),
-                "GRAYLOG_DATANODE_OPENSEARCH_HTTP_PORT": str(
-                    ports["opensearch"]
-                ),
-                "GRAYLOG_DATANODE_OPENSEARCH_TRANSPORT_PORT": str(
-                    ports["opensearchTransport"]
-                ),
+                "GRAYLOG_DATANODE_DATANODE_HTTP_PORT": str(ports["graylogDataNode"]),
+                "GRAYLOG_DATANODE_OPENSEARCH_HTTP_PORT": str(ports["opensearch"]),
+                "GRAYLOG_DATANODE_OPENSEARCH_TRANSPORT_PORT": str(ports["opensearchTransport"]),
             },
             "service": {
                 "ports": {
@@ -807,12 +957,8 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
     if ingress_enabled and config["tls"]["mode"] == "cert-manager":
         issuer = config["tls"]["certManager"]["clusterIssuer"]
-        graylog["ingress"]["config"]["tls"] = {
-            "clusterIssuer": {"existingName": issuer}
-        }
-        graylog["ingress"]["web"]["annotations"] = {
-            "cert-manager.io/cluster-issuer": issuer
-        }
+        graylog["ingress"]["config"]["tls"] = {"clusterIssuer": {"existingName": issuer}}
+        graylog["ingress"]["web"]["annotations"] = {"cert-manager.io/cluster-issuer": issuer}
         graylog["ingress"]["web"]["tls"] = [
             {
                 "secretName": "observeweaver-graylog-tls",
@@ -871,19 +1017,14 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "opentelemetry-collector": otel,
         "graylog": graylog,
         "zabbix": zabbix,
+        "redis": _redis_kubernetes_manifest(config),
     }
 
 
-def _docker_cluster_node_files(
-    config: dict[str, Any], node: dict[str, Any]
-) -> dict[str, str]:
+def _docker_cluster_node_files(config: dict[str, Any], node: dict[str, Any]) -> dict[str, str]:
     ports = config["network"]["ports"]
-    metrics_nodes = [
-        item for item in config["nodes"] if "metrics" in item["roles"]
-    ]
-    telemetry_nodes = [
-        item for item in config["nodes"] if "telemetry" in item["roles"]
-    ]
+    metrics_nodes = [item for item in config["nodes"] if "metrics" in item["roles"]]
+    telemetry_nodes = [item for item in config["nodes"] if "telemetry" in item["roles"]]
     log_nodes = [item for item in config["nodes"] if "logs" in item["roles"]]
     data_nodes = [item for item in config["nodes"] if "data" in item["roles"]]
     eligible_nodes = {
@@ -894,11 +1035,10 @@ def _docker_cluster_node_files(
         "zabbix": metrics_nodes,
         "graylog": log_nodes,
         "opensearch": data_nodes,
+        "redis": data_nodes,
     }
     component_nodes = {
-        name: nodes[: _replicas(config, name)]
-        if _component(config, name)["enabled"]
-        else []
+        name: nodes[: _replicas(config, name)] if _component(config, name)["enabled"] else []
         for name, nodes in eligible_nodes.items()
     }
     mongodb_nodes = (
@@ -907,9 +1047,7 @@ def _docker_cluster_node_files(
         else []
     )
     active_profiles = [
-        profile
-        for profile, assigned_nodes in component_nodes.items()
-        if node in assigned_nodes
+        profile for profile, assigned_nodes in component_nodes.items() if node in assigned_nodes
     ]
     if _component(config, "graylog")["enabled"] and node in mongodb_nodes:
         active_profiles.append("mongodb")
@@ -922,29 +1060,21 @@ def _docker_cluster_node_files(
         "NODE_ADDRESS": node["address"],
         "NODE_ENDPOINT_ADDRESS": _endpoint_host(node["address"]),
         "OBSERVEWEAVER_DOMAIN": config["network"]["domain"],
-        "OBSERVEWEAVER_SCHEME": "https"
-        if config["tls"]["mode"] != "disabled"
-        else "http",
+        "OBSERVEWEAVER_SCHEME": "https" if config["tls"]["mode"] != "disabled" else "http",
         "PROMETHEUS_VERSION": _component(config, "prometheus")["version"],
-        "PROMETHEUS_ENABLED": str(
-            _component(config, "prometheus")["enabled"]
-        ).lower(),
+        "PROMETHEUS_ENABLED": str(_component(config, "prometheus")["enabled"]).lower(),
         "ALERTMANAGER_VERSION": _component(config, "alertmanager")["version"],
-        "ALERTMANAGER_ENABLED": str(
-            _component(config, "alertmanager")["enabled"]
-        ).lower(),
+        "ALERTMANAGER_ENABLED": str(_component(config, "alertmanager")["enabled"]).lower(),
         "GRAFANA_VERSION": _component(config, "grafana")["version"],
         "GRAFANA_ENABLED": str(_component(config, "grafana")["enabled"]).lower(),
         "OTELCOL_VERSION": _component(config, "opentelemetry")["version"],
-        "OTELCOL_ENABLED": str(
-            _component(config, "opentelemetry")["enabled"]
-        ).lower(),
+        "OTELCOL_ENABLED": str(_component(config, "opentelemetry")["enabled"]).lower(),
         "GRAYLOG_VERSION": _component(config, "graylog")["version"],
         "GRAYLOG_ENABLED": str(_component(config, "graylog")["enabled"]).lower(),
         "OPENSEARCH_VERSION": _component(config, "opensearch")["version"],
-        "OPENSEARCH_ENABLED": str(
-            _component(config, "opensearch")["enabled"]
-        ).lower(),
+        "OPENSEARCH_ENABLED": str(_component(config, "opensearch")["enabled"]).lower(),
+        "REDIS_VERSION": _component(config, "redis")["version"],
+        "REDIS_ENABLED": str(_component(config, "redis")["enabled"]).lower(),
         "MONGODB_VERSION": config["dependencies"]["mongodb"]["version"],
         "POSTGRES_VERSION": config["dependencies"]["postgresql"]["version"],
         "PROMETHEUS_IMAGE": DOCKER_IMAGE_LOCKS["prometheus"],
@@ -957,6 +1087,7 @@ def _docker_cluster_node_files(
         "MONGODB_IMAGE": DOCKER_IMAGE_LOCKS["mongodb"],
         "OPENSEARCH_IMAGE": DOCKER_IMAGE_LOCKS["opensearch"],
         "GRAYLOG_IMAGE": DOCKER_IMAGE_LOCKS["graylog"],
+        "REDIS_IMAGE": DOCKER_IMAGE_LOCKS["redis"],
         "PROMETHEUS_PORT": ports["prometheus"],
         "ALERTMANAGER_PORT": ports["alertmanager"],
         "ALERTMANAGER_CLUSTER_PORT": ports["alertmanagerCluster"],
@@ -978,14 +1109,19 @@ def _docker_cluster_node_files(
         "OPENSEARCH_PORT": ports["opensearch"],
         "OPENSEARCH_TRANSPORT_PORT": ports["opensearchTransport"],
         "MONGODB_PORT": ports["mongodb"],
+        "REDIS_PORT": ports["redis"],
+        "REDIS_SENTINEL_PORT": ports["redisSentinel"],
+        "REDIS_PRIMARY_HOST": (
+            component_nodes["redis"][0]["name"] if component_nodes["redis"] else ""
+        ),
+        "REDIS_PRIMARY_NODE": (
+            component_nodes["redis"][0]["name"] if component_nodes["redis"] else ""
+        ),
+        "REDIS_SENTINEL_QUORUM": 2 if len(component_nodes["redis"]) > 1 else 1,
         "PROMETHEUS_RETENTION": f"{config['retention']['metricsDays']}d",
         "GRAYLOG_RETENTION_DAYS": config["retention"]["logsDays"],
-        "GRAYLOG_ELASTICSEARCH_REPLICAS": (
-            1 if config["deployment"]["mode"] == "cluster" else 0
-        ),
-        "OPENSEARCH_JAVA_OPTS": _component(config, "opensearch").get(
-            "javaOpts", "-Xms2g -Xmx2g"
-        ),
+        "GRAYLOG_ELASTICSEARCH_REPLICAS": (1 if config["deployment"]["mode"] == "cluster" else 0),
+        "OPENSEARCH_JAVA_OPTS": _component(config, "opensearch").get("javaOpts", "-Xms2g -Xmx2g"),
         "OPENSEARCH_SEED_HOSTS": ",".join(
             _host_port(item["name"], ports["opensearchTransport"])
             for item in component_nodes["opensearch"]
@@ -1001,12 +1137,12 @@ def _docker_cluster_node_files(
         "COMPOSE_PROFILES": ",".join(active_profiles),
     }
     if not zabbix_external_database:
-        node_env["ZABBIX_DATABASE_HOST"] = (
-            zabbix_nodes[0]["address"] if zabbix_nodes else ""
-        )
-    env_text = "# Generated by owctl; contains no secret values.\n" + "\n".join(
-        f"{key}={value}" for key, value in node_env.items()
-    ) + "\n"
+        node_env["ZABBIX_DATABASE_HOST"] = zabbix_nodes[0]["address"] if zabbix_nodes else ""
+    env_text = (
+        "# Generated by owctl; contains no secret values.\n"
+        + "\n".join(f"{key}={value}" for key, value in node_env.items())
+        + "\n"
+    )
 
     scrape_configs = []
     if component_nodes["prometheus"]:
@@ -1042,9 +1178,7 @@ def _docker_cluster_node_files(
                     "static_configs": [
                         {
                             "targets": [
-                                _host_port(
-                                    item["address"], ports["otelPrometheus"]
-                                )
+                                _host_port(item["address"], ports["otelPrometheus"])
                                 for item in component_nodes["opentelemetry"]
                             ]
                         }
@@ -1083,9 +1217,7 @@ def _docker_cluster_node_files(
         "receivers": [{"name": "default"}],
     }
     otel = {
-        "extensions": {
-            "health_check": {"endpoint": f"0.0.0.0:{ports['otelHealth']}"}
-        },
+        "extensions": {"health_check": {"endpoint": f"0.0.0.0:{ports['otelHealth']}"}},
         "receivers": {
             "otlp": {
                 "protocols": {
@@ -1103,9 +1235,7 @@ def _docker_cluster_node_files(
             "batch": {},
         },
         "exporters": {
-            "prometheus": {
-                "endpoint": f"0.0.0.0:{ports['otelPrometheus']}"
-            },
+            "prometheus": {"endpoint": f"0.0.0.0:{ports['otelPrometheus']}"},
             "debug": {"verbosity": "basic"},
         },
         "service": {
@@ -1145,12 +1275,9 @@ def _docker_cluster_node_files(
             },
         },
     }
-    mongo_hosts = ",".join(
-        f"{item['name']}:{ports['mongodb']}" for item in mongodb_nodes
-    )
+    mongo_hosts = ",".join(f"{item['name']}:{ports['mongodb']}" for item in mongodb_nodes)
     search_hosts = ",".join(
-        f"http://{item['name']}:{ports['opensearch']}"
-        for item in component_nodes["opensearch"]
+        f"http://{item['name']}:{ports['opensearch']}" for item in component_nodes["opensearch"]
     )
     datasource_node = (
         node
@@ -1159,34 +1286,36 @@ def _docker_cluster_node_files(
         if component_nodes["prometheus"]
         else None
     )
-    prometheus_datasources = [
-        {
-            "name": "Prometheus",
-            "uid": "prometheus",
-            "type": "prometheus",
-            "access": "proxy",
-            "url": "http://"
-            + _host_port(
-                datasource_node["address"],
-                ports["prometheus"],
-            ),
-            "isDefault": True,
-            "editable": False,
-            "jsonData": {
-                "httpMethod": "POST",
-                "prometheusType": "Prometheus",
-                "timeInterval": "15s",
-            },
-        }
-    ] if datasource_node else []
+    prometheus_datasources = (
+        [
+            {
+                "name": "Prometheus",
+                "uid": "prometheus",
+                "type": "prometheus",
+                "access": "proxy",
+                "url": "http://"
+                + _host_port(
+                    datasource_node["address"],
+                    ports["prometheus"],
+                ),
+                "isDefault": True,
+                "editable": False,
+                "jsonData": {
+                    "httpMethod": "POST",
+                    "prometheusType": "Prometheus",
+                    "timeInterval": "15s",
+                },
+            }
+        ]
+        if datasource_node
+        else []
+    )
     datasource = {
         "apiVersion": 1,
         "deleteDatasources": [{"name": "Prometheus", "orgId": 1}],
         "datasources": prometheus_datasources,
     }
-    extra_hosts = {
-        item["name"]: item["address"] for item in config["nodes"]
-    }
+    extra_hosts = {item["name"]: item["address"] for item in config["nodes"]}
     override: dict[str, Any] = {
         "services": {
             service: {"extra_hosts": extra_hosts}
@@ -1201,6 +1330,8 @@ def _docker_cluster_node_files(
                 "mongodb",
                 "opensearch",
                 "graylog",
+                "redis",
+                "redis-sentinel",
             )
         }
     }
@@ -1219,7 +1350,7 @@ def _docker_cluster_node_files(
                 "MONGO_INITDB_ROOT_USERNAME": "graylog",
                 "MONGO_INITDB_ROOT_PASSWORD": "${MONGODB_ROOT_PASSWORD}",
                 "MONGO_INITDB_DATABASE": "graylog",
-            }
+            },
         }
     return {
         ".env.generated": env_text,
@@ -1259,10 +1390,7 @@ def render(config: dict[str, Any], output_root: str | Path) -> list[Path]:
         )
         created.append(path)
 
-    if (
-        config["deployment"]["engine"] == "docker"
-        and config["deployment"]["mode"] == "cluster"
-    ):
+    if config["deployment"]["engine"] == "docker" and config["deployment"]["mode"] == "cluster":
         for node in config["nodes"]:
             node_root = root / "docker" / "nodes" / node["name"]
             for filename, content in _docker_cluster_node_files(config, node).items():

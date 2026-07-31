@@ -14,6 +14,8 @@ observeweaver_opensearch_arch:
 
 observeweaver_graylog_repository_major: "7.1"
 observeweaver_mongodb_repository_major: "8.0"
+observeweaver_redis_source_url: https://download.redis.io/releases/redis-8.8.0.tar.gz
+observeweaver_redis_source_sha256: 88422181efb0c9c0abba332e3e391d409e1e13714b838931669235e5796f704b
 observeweaver_grafana_build_id: "29761037902"
 observeweaver_prometheus_linux_amd64_sha256: "962b812371aff838d152b6ff2d56fdb7a6396f5542f48ebf73421b9721f0d103"
 observeweaver_alertmanager_linux_amd64_sha256: "93d802cba6a8d27239d747ce117df7648d326ab67394e32247540b030e9842ba"
