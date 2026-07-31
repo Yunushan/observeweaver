@@ -94,9 +94,27 @@ class ConfigTests(unittest.TestCase):
                 config = self.load_example("raw-standalone.yml")
                 config["platform"]["distribution"] = distribution
                 config["platform"]["version"] = version
+                config["dependencies"]["mongodb"]["external"] = True
                 result = validate_config(config)
-                self.assertFalse(
-                    any("supported version" in error for error in result.errors)
+                self.assertEqual([], result.errors)
+
+    def test_raw_graylog_on_newer_linux_releases_requires_external_mongodb(self) -> None:
+        for distribution, version in (
+            ("ubuntu", "26.04"),
+            ("rocky", "10"),
+            ("almalinux", "10"),
+            ("rhel", "10"),
+        ):
+            with self.subTest(distribution=distribution):
+                config = self.load_example("raw-standalone.yml")
+                config["platform"]["distribution"] = distribution
+                config["platform"]["version"] = version
+                result = validate_config(config)
+                self.assertTrue(
+                    any(
+                        "requires dependencies.mongodb.external=true" in error
+                        for error in result.errors
+                    )
                 )
 
     def test_latest_tag_is_rejected(self) -> None:
@@ -304,7 +322,8 @@ class RenderTests(unittest.TestCase):
             )
         )
         locks = lockfile["chartImages"]
-        self.assertEqual(23, len(locks))
+        self.assertEqual(24, len(locks))
+        self.assertIn("postgres:17", locks)
         for image in locks.values():
             self.assertRegex(image, r"^[^@]+@sha256:[0-9a-f]{64}$")
 
@@ -694,6 +713,7 @@ class SecretTests(unittest.TestCase):
         self.assertNotEqual(
             values["GRAFANA_ADMIN_PASSWORD"], values["OPENSEARCH_INITIAL_ADMIN_PASSWORD"]
         )
+        self.assertEqual("", values["MONGODB_URI"])
 
     def test_secret_file_refuses_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

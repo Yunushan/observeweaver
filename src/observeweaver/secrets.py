@@ -15,6 +15,7 @@ SECRET_KEYS = (
     "OPENSEARCH_INITIAL_ADMIN_PASSWORD",
     "MONGODB_ROOT_PASSWORD",
     "MONGODB_REPLICA_SET_KEY",
+    "MONGODB_URI",
     "POSTGRES_PASSWORD",
     "ZABBIX_DATABASE_HOST",
     "ZABBIX_DATABASE_PORT",
@@ -59,6 +60,9 @@ def generate_secret_values() -> dict[str, str]:
         # MongoDB keyfiles accept 6-1024 characters from the base64 alphabet.
         # Hex stays inside that alphabet and avoids YAML/URI punctuation.
         "MONGODB_REPLICA_SET_KEY": secrets.token_hex(384),
+        # Empty selects the locally managed MongoDB replica set. Raw installs on
+        # newer host releases require an operator-managed MongoDB URI instead.
+        "MONGODB_URI": "",
         "POSTGRES_PASSWORD": _password(),
         # Leave the host empty for embedded databases. Cluster HA profiles require
         # the operator to set it to a resilient external PostgreSQL endpoint.

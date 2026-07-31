@@ -83,7 +83,7 @@
           ]
         },
         "version": {
-          "enum": ["8", "9", "10", "11", "22.04", "24.04", "2019", "2022", "2025"]
+          "enum": ["8", "9", "10", "11", "22.04", "24.04", "26.04", "2019", "2022", "2025"]
         },
         "execution": {
           "enum": ["native", "wsl2", "linux-vm", "remote-linux"]
@@ -327,7 +327,20 @@
       "required": ["mongodb", "postgresql", "zabbixPostgresql"],
       "properties": {
         "mongodb": {
-          "$ref": "#/$defs/dependency"
+          "allOf": [
+            {
+              "$ref": "#/$defs/dependency"
+            },
+            {
+              "type": "object",
+              "required": ["external"],
+              "properties": {
+                "external": {
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
         },
         "postgresql": {
           "allOf": [

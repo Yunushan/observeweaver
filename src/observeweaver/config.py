@@ -548,6 +548,27 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
                 f"({expected_version})."
             )
 
+    mongodb_external = _get(config, "dependencies.mongodb.external", False)
+    graylog_enabled = _get(config, "components.graylog.enabled", False)
+    if (
+        engine == "raw"
+        and graylog_enabled
+        and (
+            (distribution == "ubuntu" and platform_version == "26.04")
+            or (
+                distribution in {"rocky", "almalinux", "rhel"}
+                and platform_version == "10"
+            )
+        )
+        and mongodb_external is not True
+    ):
+        result.errors.append(
+            "Raw Graylog on Ubuntu 26.04 or Enterprise Linux 10 requires "
+            "dependencies.mongodb.external=true and MONGODB_URI set to an "
+            "operator-managed MongoDB endpoint, because the pinned MongoDB "
+            "8.0 package is not supported on those host releases."
+        )
+
     zabbix_enabled = _get(config, "components.zabbix.enabled", False)
     zabbix_replicas = _get(config, "components.zabbix.replicas", 1)
     zabbix_database_external = _get(config, "dependencies.zabbixPostgresql.external", False)

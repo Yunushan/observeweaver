@@ -17,7 +17,7 @@ files under `build/`.
 | `retention` | Metrics and log retention days |
 | `security` | Secret-file reference and plaintext policy |
 | `components` | Enable flags, exact versions, replicas, component tuning |
-| `dependencies` | MongoDB version and Grafana HA database mode |
+| `dependencies` | MongoDB and PostgreSQL versions plus external-database modes |
 
 ## Node roles
 
@@ -58,6 +58,10 @@ PYTHONPATH=src python3 -m observeweaver.cli secrets \
 
 The command refuses to overwrite an existing file unless `--force` is supplied.
 For Grafana HA, set the external database host/name/user values in that file.
+For raw Graylog on Ubuntu 26.04 or Enterprise Linux 10, set
+`dependencies.mongodb.external: true` and replace the generated empty
+`MONGODB_URI` with the full URI for a supported, operator-managed MongoDB
+deployment. The raw role then skips local MongoDB installation and bootstrap.
 In mature environments, replace the env file with SOPS, Vault, or an external
 secret controller while preserving the same logical keys.
 

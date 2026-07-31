@@ -321,6 +321,14 @@ jobs:
             --post-renderer python \
             --post-renderer-args scripts/pin_kubernetes_images.py \
             >/dev/null
+          owctl render --config config/examples/k3s-standalone.yml --output build/k3s-standalone
+          helm template observeweaver-zabbix-standalone /tmp/zabbix.tgz \
+            --namespace observeweaver \
+            --kube-version 1.33 \
+            --values build/k3s-standalone/production/kubernetes/zabbix.values.generated.yml \
+            --post-renderer python \
+            --post-renderer-args scripts/pin_kubernetes_images.py \
+            >/dev/null
           helm template observeweaver-graylog /tmp/graylog.tgz \
             --namespace observeweaver \
             --kube-version 1.33 \

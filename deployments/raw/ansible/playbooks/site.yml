@@ -59,6 +59,7 @@
         tasks_from: mongodb_bootstrap.yml
       when:
         - observeweaver.components.graylog.enabled | bool
+        - not (observeweaver.dependencies.mongodb.external | bool)
         - inventory_hostname == groups['mongodb'] | first
 
 - name: Install Graylog after its databases are ready

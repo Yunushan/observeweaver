@@ -5,6 +5,7 @@ set -euo pipefail
 
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
+POST_RENDERER_COMMAND="${POST_RENDERER_COMMAND:-${PYTHON_BIN}}"
 CONFIG_FILE="${CONFIG_FILE:-${REPOSITORY_ROOT}/config/examples/cluster.yml}"
 GENERATED_VALUES_DIR="${GENERATED_VALUES_DIR:-${REPOSITORY_ROOT}/build/production/kubernetes}"
 CHART_CACHE="${CHART_CACHE:-${REPOSITORY_ROOT}/.observeweaver/charts}"
@@ -187,7 +188,7 @@ if [[
   helm upgrade --install observeweaver-monitoring "${kube_prometheus_chart}" \
     --namespace "${namespace}" \
     --values "${GENERATED_VALUES_DIR}/kube-prometheus-stack.values.generated.yml" \
-    --post-renderer "${PYTHON_BIN}" \
+    --post-renderer "${POST_RENDERER_COMMAND}" \
     --post-renderer-args "${IMAGE_PIN_POST_RENDERER}" \
     --atomic \
     --timeout 20m
@@ -197,7 +198,7 @@ if [[ "$(config_value components.opentelemetry.enabled)" == "true" ]]; then
   helm upgrade --install observeweaver-otel "${otel_chart}" \
     --namespace "${namespace}" \
     --values "${GENERATED_VALUES_DIR}/opentelemetry-collector.values.generated.yml" \
-    --post-renderer "${PYTHON_BIN}" \
+    --post-renderer "${POST_RENDERER_COMMAND}" \
     --post-renderer-args "${IMAGE_PIN_POST_RENDERER}" \
     --atomic \
     --timeout 10m
@@ -207,7 +208,7 @@ if [[ "$(config_value components.zabbix.enabled)" == "true" ]]; then
   helm upgrade --install observeweaver-zabbix "${zabbix_chart}" \
     --namespace "${namespace}" \
     --values "${GENERATED_VALUES_DIR}/zabbix.values.generated.yml" \
-    --post-renderer "${PYTHON_BIN}" \
+    --post-renderer "${POST_RENDERER_COMMAND}" \
     --post-renderer-args "${IMAGE_PIN_POST_RENDERER}" \
     --atomic \
     --timeout 20m
@@ -218,7 +219,7 @@ if [[ "$(config_value components.graylog.enabled)" == "true" ]]; then
     --namespace mongodb-operator \
     --create-namespace \
     --set 'operator.watchNamespace=*' \
-    --post-renderer "${PYTHON_BIN}" \
+    --post-renderer "${POST_RENDERER_COMMAND}" \
     --post-renderer-args "${IMAGE_PIN_POST_RENDERER}" \
     --atomic \
     --timeout 10m
@@ -230,7 +231,7 @@ if [[ "$(config_value components.graylog.enabled)" == "true" ]]; then
     --namespace "${namespace}" \
     --values "${GENERATED_VALUES_DIR}/graylog.values.generated.yml" \
     --values "${temporary_values}" \
-    --post-renderer "${PYTHON_BIN}" \
+    --post-renderer "${POST_RENDERER_COMMAND}" \
     --post-renderer-args "${IMAGE_PIN_POST_RENDERER}" \
     --atomic \
     --timeout 30m

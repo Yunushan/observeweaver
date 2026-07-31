@@ -49,6 +49,18 @@
     group: graylog
     mode: "0750"
 
+- name: Assert that external MongoDB URI is configured when selected
+  ansible.builtin.assert:
+    that:
+      - >-
+        lookup('ansible.builtin.ini', 'MONGODB_URI', type='properties',
+        file=observeweaver_secret_file) | length > 0
+    fail_msg: >-
+      Set MONGODB_URI in the protected secret file when
+      dependencies.mongodb.external=true.
+  when: observeweaver.dependencies.mongodb.external | bool
+  no_log: true
+
 - name: Read the OpenSearch certificate authority
   ansible.builtin.slurp:
     src: /etc/opensearch/observeweaver-root-ca.pem

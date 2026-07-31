@@ -115,6 +115,7 @@ components:
 dependencies:
   mongodb:
     version: "8.0.28"
+    external: false
   postgresql:
     version: "17"
     external: false

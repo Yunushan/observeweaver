@@ -110,8 +110,8 @@ jobs:
               kubernetes_locks,
               flags=re.MULTILINE,
           )
-          if len(kubernetes_images) != 23:
-              raise SystemExit("Expected exactly 23 immutable Kubernetes image locks.")
+          if len(kubernetes_images) != 24:
+              raise SystemExit("Expected exactly 24 immutable Kubernetes image locks.")
 
           bad = []
           for path in pathlib.Path(".github/workflows").glob("*.y*ml"):
