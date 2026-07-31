@@ -194,10 +194,33 @@
     "tls": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode"],
+      "required": ["mode", "secretName", "additionalDnsNames", "additionalIpAddresses"],
       "properties": {
         "mode": {
           "enum": ["provided", "cert-manager", "disabled"]
+        },
+        "secretName": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+        },
+        "additionalDnsNames": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "additionalIpAddresses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "anyOf": [
+              { "format": "ipv4" },
+              { "format": "ipv6" }
+            ]
+          },
+          "uniqueItems": true
         },
         "provided": {
           "type": "object",

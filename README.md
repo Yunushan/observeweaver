@@ -107,11 +107,13 @@ CONFIG_FILE=config/production.yml scripts/observeweaver.sh deploy --yes
 CONFIG_FILE=config/production.yml scripts/observeweaver.sh verify
 ```
 
-The example binds admin ports to a configurable address. Put Grafana and
-Graylog behind a TLS reverse proxy; never expose MongoDB, OpenSearch, or Redis
-directly. The Compose backend network is internal and those database ports are
-not published. `tls.mode: provided` records the certificate paths expected by that
-external proxy; ObserveWeaver does not copy private keys into containers.
+The example binds admin ports to a configurable address. Put Grafana, Graylog,
+and Zabbix behind a TLS reverse proxy; never expose MongoDB, OpenSearch, or
+Redis directly. The Compose backend network is internal and those database
+ports are not published. Raw/Docker `tls.mode: provided` records the full-chain
+certificate and private-key paths consumed by that external proxy. On K3s/RKE2,
+the installer imports those files into a Kubernetes TLS Secret without writing
+the key into generated files or containers.
 
 ## Quick start: 3-node RKE2
 
@@ -165,6 +167,9 @@ network:
 
 tls:
   mode: cert-manager
+  secretName: observeweaver-public-tls
+  additionalDnsNames: []       # Add '*.observability.example.com' with a DNS-01 issuer.
+  additionalIpAddresses: []    # Only when the issuer and ingress support IP SANs.
 
 storage:
   className: longhorn

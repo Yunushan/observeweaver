@@ -55,6 +55,9 @@ network:
 
 tls:
   mode: disabled
+  secretName: observeweaver-public-tls
+  additionalDnsNames: []
+  additionalIpAddresses: []
   provided:
     certificateFile: null
     privateKeyFile: null

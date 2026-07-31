@@ -64,6 +64,9 @@ network:
 
 tls:
   mode: cert-manager
+  secretName: observeweaver-public-tls
+  additionalDnsNames: []
+  additionalIpAddresses: []
   provided:
     certificateFile: null
     privateKeyFile: null

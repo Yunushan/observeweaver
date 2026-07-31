@@ -414,6 +414,46 @@ def _group_vars(config: dict[str, Any]) -> str:
     )
 
 
+def _public_tls_dns_names(config: dict[str, Any]) -> list[str]:
+    """Return deterministic DNS SANs for public web endpoints and user additions."""
+    domain = config["network"]["domain"]
+    names = [
+        f"{component}.{domain}"
+        for component in ("grafana", "graylog", "zabbix")
+        if _component(config, component)["enabled"]
+    ]
+    names.extend(config["tls"].get("additionalDnsNames", []))
+    return list(dict.fromkeys(names))
+
+
+def _public_tls_manifest(config: dict[str, Any]) -> dict[str, Any]:
+    """Render a cert-manager Certificate without embedding certificate material."""
+    if config["tls"]["mode"] != "cert-manager":
+        return {"apiVersion": "v1", "kind": "List", "items": []}
+
+    return {
+        "apiVersion": "v1",
+        "kind": "List",
+        "items": [
+            {
+                "apiVersion": "cert-manager.io/v1",
+                "kind": "Certificate",
+                "metadata": {"name": config["tls"]["secretName"]},
+                "spec": {
+                    "secretName": config["tls"]["secretName"],
+                    "issuerRef": {
+                        "name": config["tls"]["certManager"]["clusterIssuer"],
+                        "kind": "ClusterIssuer",
+                        "group": "cert-manager.io",
+                    },
+                    "dnsNames": _public_tls_dns_names(config),
+                    "ipAddresses": config["tls"].get("additionalIpAddresses", []),
+                },
+            }
+        ],
+    }
+
+
 def _redis_kubernetes_manifest(config: dict[str, Any]) -> dict[str, Any]:
     """Render a password-protected Redis StatefulSet and Sentinel HA topology."""
     if not _component(config, "redis")["enabled"]:
@@ -613,6 +653,8 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
     domain = config["network"]["domain"]
     ingress_enabled = config["network"]["ingress"]["enabled"]
     ingress_class = config["network"]["ingress"].get("className", "")
+    tls_enabled = ingress_enabled and config["tls"]["mode"] != "disabled"
+    tls_secret_name = config["tls"]["secretName"]
     secret_name = config["security"].get("kubernetesSecretName", "observeweaver-secrets")
 
     prometheus = {
@@ -688,12 +730,10 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
             },
         },
     }
-    if ingress_enabled and config["tls"]["mode"] == "cert-manager":
-        issuer = config["tls"]["certManager"]["clusterIssuer"]
-        prometheus["grafana"]["ingress"]["annotations"] = {"cert-manager.io/cluster-issuer": issuer}
+    if tls_enabled and _component(config, "grafana")["enabled"]:
         prometheus["grafana"]["ingress"]["tls"] = [
             {
-                "secretName": "observeweaver-grafana-tls",
+                "secretName": tls_secret_name,
                 "hosts": [f"grafana.{domain}"],
             }
         ]
@@ -955,13 +995,10 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
             },
         },
     }
-    if ingress_enabled and config["tls"]["mode"] == "cert-manager":
-        issuer = config["tls"]["certManager"]["clusterIssuer"]
-        graylog["ingress"]["config"]["tls"] = {"clusterIssuer": {"existingName": issuer}}
-        graylog["ingress"]["web"]["annotations"] = {"cert-manager.io/cluster-issuer": issuer}
+    if tls_enabled and _component(config, "graylog")["enabled"]:
         graylog["ingress"]["web"]["tls"] = [
             {
-                "secretName": "observeweaver-graylog-tls",
+                "secretName": tls_secret_name,
                 "hosts": [f"graylog.{domain}"],
             }
         ]
@@ -999,6 +1036,27 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "replicaCount": zabbix_replicas,
             "service": {"type": "ClusterIP"},
         },
+        "ingress": {
+            "enabled": ingress_enabled and zabbix_enabled,
+            "ingressClassName": ingress_class,
+            "annotations": {},
+            "hosts": [
+                {
+                    "host": f"zabbix.{domain}",
+                    "paths": [{"path": "/", "pathType": "Prefix"}],
+                }
+            ],
+            "tls": (
+                [
+                    {
+                        "secretName": tls_secret_name,
+                        "hosts": [f"zabbix.{domain}"],
+                    }
+                ]
+                if tls_enabled and zabbix_enabled
+                else []
+            ),
+        },
         "postgresql": {
             "enabled": zabbix_enabled and not zabbix_external_database,
             "image": {
@@ -1018,6 +1076,7 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "graylog": graylog,
         "zabbix": zabbix,
         "redis": _redis_kubernetes_manifest(config),
+        "public-tls": _public_tls_manifest(config),
     }
 
 

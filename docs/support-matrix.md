@@ -57,6 +57,10 @@ workloads use Linux images and Linux nodes.
 - Redis 8.8.0 is built from the checksum-verified upstream source for raw Linux
   and uses an immutable official container image for Docker/K3s/RKE2. Redis
   cluster mode requires exactly three Redis members for Sentinel failover.
+- K3s/RKE2 public TLS covers Grafana, Graylog, and Zabbix through either an
+  existing cert-manager `ClusterIssuer` or an installer-imported full-chain
+  PEM/CRT plus private key. Wildcards require a DNS-01-capable issuer; literal
+  IP SANs require issuer and ingress support and do not replace DNS host routes.
 
 Tiers describe automation depth, not a claim that every OS/runtime combination
 is started in CI: tier 1 has maintained configuration, lint, render, and
