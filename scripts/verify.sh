@@ -87,6 +87,7 @@ roles = {
     "zabbix": "metrics",
     "graylog": "logs",
     "opensearch": "data",
+    "redis": "data",
 }
 eligible = [node for node in config["nodes"] if roles[component] in node["roles"]]
 replicas = config["components"][component]["replicas"]
@@ -225,6 +226,45 @@ PY
   else
     printf 'FAIL  zabbix-server (%s:%s)\n' \
       "${zabbix_host}" "${zabbix_port}" >&2
+    status=1
+  fi
+fi
+
+if [[
+  "$(read_config components.redis.enabled)" == "True" &&
+  ( "$(read_config deployment.engine)" == "raw" ||
+    ( "$(read_config deployment.engine)" == "docker" &&
+      "$(read_config deployment.mode)" == "cluster" ) ) &&
+  "$(component_is_local redis)" == "True"
+]]; then
+  if [[ ! -r "${secret_file}" ]]; then
+    printf 'FAIL  redis (secret file is not readable: %s)\n' "${secret_file}" >&2
+    exit 1
+  fi
+  redis_host="${bind_address#[}"
+  redis_host="${redis_host%]}"
+  if REDIS_PASSWORD="$(read_secret "${secret_file}" REDIS_PASSWORD)" \
+    "${PYTHON_BIN}" - "${redis_host}" "$(read_config network.ports.redis)" <<'PY'
+import os
+import socket
+import sys
+
+host, raw_port = sys.argv[1:]
+password = os.environ["REDIS_PASSWORD"].encode("utf-8")
+with socket.create_connection((host, int(raw_port)), timeout=10) as connection:
+    connection.sendall(
+        b"*2\r\n$4\r\nAUTH\r\n$" + str(len(password)).encode() + b"\r\n" + password + b"\r\n"
+        + b"*1\r\n$4\r\nPING\r\n"
+    )
+    response = connection.recv(128)
+if not response.endswith(b"+PONG\r\n"):
+    raise SystemExit(f"unexpected Redis response: {response!r}")
+PY
+  then
+    printf 'PASS  redis\n'
+  else
+    printf 'FAIL  redis (%s:%s)\n' \
+      "${redis_host}" "$(read_config network.ports.redis)" >&2
     status=1
   fi
 fi

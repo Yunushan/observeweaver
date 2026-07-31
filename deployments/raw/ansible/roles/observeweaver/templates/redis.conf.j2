@@ -1,0 +1,15 @@
+bind 127.0.0.1 {{ hostvars[inventory_hostname].ansible_host }}
+port {{ observeweaver.network.ports.redis }}
+protected-mode yes
+requirepass {{ redis_password }}
+masterauth {{ redis_password }}
+appendonly yes
+appendfsync everysec
+dir {{ observeweaver_data_root }}/redis
+dbfilename dump.rdb
+save 900 1
+save 300 10
+save 60 10000
+{% if observeweaver.deployment.mode == 'cluster' and inventory_hostname != (groups['redis'] | first) %}
+replicaof {{ groups['redis'] | first }} {{ observeweaver.network.ports.redis }}
+{% endif %}

@@ -24,6 +24,7 @@ digests. It installs:
 - Zabbix chart 7.1.0, configured to use Zabbix 7.0.28 LTS and PostgreSQL;
 - Graylog chart 1.0.0 with Graylog/Data Node 7.1.6;
 - the Graylog-documented MongoDB Kubernetes operator 1.6.1.
+- a password-protected Redis StatefulSet using the immutable official Redis image.
 
 Graylog Data Node manages the OpenSearch backend on Kubernetes. This is the
 preferred Graylog architecture and prevents an accidental upgrade to
@@ -58,6 +59,12 @@ ingress or LoadBalancer layer.
 OTLP and Graylog input Services are created as `ClusterIP`. Exposing
 OTLP/GELF/Beats/Syslog to senders outside the cluster still requires an
 operator-managed LoadBalancer, NodePort, or TCP/UDP ingress mapping.
+
+Redis is also `ClusterIP`/headless only. Standalone mode renders one persistent
+Redis pod. Cluster mode renders a three-member primary/replica StatefulSet and
+one Sentinel sidecar per member; use `observeweaver-redis-sentinel:26379` for
+primary discovery. The installer applies the generated Redis manifest after
+the secret exists and waits for the StatefulSet rollout.
 
 ## Deploy
 

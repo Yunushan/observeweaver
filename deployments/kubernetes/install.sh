@@ -214,6 +214,13 @@ if [[ "$(config_value components.zabbix.enabled)" == "true" ]]; then
     --timeout 20m
 fi
 
+if [[ "$(config_value components.redis.enabled)" == "true" ]]; then
+  kubectl -n "${namespace}" apply \
+    --filename "${GENERATED_VALUES_DIR}/redis.values.generated.yml"
+  kubectl -n "${namespace}" rollout status statefulset/observeweaver-redis \
+    --timeout 10m
+fi
+
 if [[ "$(config_value components.graylog.enabled)" == "true" ]]; then
   helm upgrade --install mongodb-kubernetes-operator "${mongodb_operator_chart}" \
     --namespace mongodb-operator \

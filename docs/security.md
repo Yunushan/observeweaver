@@ -4,7 +4,7 @@
 
 - Replace example addresses and domains.
 - Put Grafana and Graylog behind authenticated TLS ingress.
-- Restrict Prometheus, Alertmanager, OpenSearch, MongoDB, and administrative
+- Restrict Prometheus, Alertmanager, OpenSearch, MongoDB, Redis, and administrative
   APIs to management/workload networks.
 - Use a managed internal CA for east-west TLS.
 - Replace the bootstrap OpenSearch user database with organization-managed
@@ -14,15 +14,20 @@
 - Configure Grafana OIDC/SAML/LDAP and disable shared local admin use.
 - Configure Graylog roles, streams, index retention, and audit controls.
 - Define NetworkPolicies and firewall rules from explicit CIDRs.
-- Configure OpenSearch snapshots, MongoDB backups, and restore tests.
+- Configure OpenSearch snapshots, MongoDB backups, Redis AOF/RDB backups, and
+  restore tests.
 
 ## Current Compose boundary
 
-The standalone Compose profile keeps MongoDB and OpenSearch on a Docker
+The standalone Compose profile keeps MongoDB, OpenSearch, and Redis on a Docker
 `internal` network and publishes neither port. OpenSearch security is disabled
 there for deterministic Graylog bootstrap. That is acceptable for a protected
 single-host lab or an isolated host backend; it is not zero-trust east-west
 security. Do not attach untrusted containers to that network.
+
+Redis requires the generated password even on that internal network. Use Docker
+secrets or an external secret provider when Docker-administrator access is
+outside the desired trust boundary.
 
 The beta multi-host Compose profile also disables OpenSearch security, but it
 uses host networking. Its OpenSearch HTTP and transport traffic is plaintext

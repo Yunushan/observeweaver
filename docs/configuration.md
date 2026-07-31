@@ -25,7 +25,7 @@ files under `build/`.
 - `metrics`: Prometheus, Alertmanager, and Grafana.
 - `telemetry`: OTel gateway/agent.
 - `logs`: Graylog.
-- `data`: MongoDB and OpenSearch/Data Node.
+- `data`: MongoDB, OpenSearch/Data Node, and Redis.
 - `ingress`: HTTP/TCP/UDP entrypoint.
 
 Compact clusters may assign every role to every node. Split production
@@ -38,6 +38,13 @@ that the supported deployment definitions expose. The beta Graylog Helm chart
 also creates chart-internal ClusterIP/container listeners on 9833 (metrics) and
 13302 (forwarder configuration). ObserveWeaver does not publish those ports,
 and the chart currently does not make 13302 configurable.
+
+Redis uses `redis` (default `6379`). In cluster mode it also uses
+`redisSentinel` (default `26379`) for the three Sentinel members. Redis is a
+private state service, not an ingress workload: do not publish either port to
+the Internet. Applications should use the authenticated Redis endpoint in
+standalone mode or query the Sentinel service in cluster mode before selecting
+the active primary.
 
 ## Storage semantics
 
@@ -64,6 +71,11 @@ For raw Graylog on Ubuntu 26.04 or Enterprise Linux 10, set
 deployment. The raw role then skips local MongoDB installation and bootstrap.
 In mature environments, replace the env file with SOPS, Vault, or an external
 secret controller while preserving the same logical keys.
+
+`REDIS_PASSWORD` is generated automatically and is required by every Redis
+server and Sentinel profile. Redis 8 is source-available under a tri-license;
+review the chosen license option and your redistribution/SaaS obligations
+before deployment.
 
 ## TLS modes
 

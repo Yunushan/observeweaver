@@ -151,6 +151,64 @@ services:
     logging: *logging
     profiles: [zabbix]
 
+  redis:
+    image: ${REDIS_IMAGE:?required}
+    <<: *restart
+    network_mode: host
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        set -eu
+        if [ "${NODE_NAME:?required}" = "$${REDIS_PRIMARY_NODE:?required}" ]; then
+          exec redis-server --bind 127.0.0.1,${NODE_ADDRESS:?required} --port "$${REDIS_PORT:-6379}" --appendonly yes --appendfsync everysec --protected-mode yes --requirepass "$${REDIS_PASSWORD:?required}"
+        fi
+        exec redis-server --bind 127.0.0.1,${NODE_ADDRESS:?required} \
+          --port "$${REDIS_PORT:-6379}" --appendonly yes --appendfsync everysec \
+          --protected-mode yes --requirepass "$${REDIS_PASSWORD:?required}" \
+          --masterauth "$${REDIS_PASSWORD}" \
+          --replicaof "$${REDIS_PRIMARY_HOST:?required}" "$${REDIS_PORT:-6379}"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping)\" = PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [redis]
+
+  redis-sentinel:
+    image: ${REDIS_IMAGE:?required}
+    <<: *restart
+    network_mode: host
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        set -eu
+        cat >/tmp/observeweaver-sentinel.conf <<EOF
+        port $${REDIS_SENTINEL_PORT:-26379}
+        bind 127.0.0.1,${NODE_ADDRESS:?required}
+        protected-mode yes
+        sentinel monitor observeweaver $${REDIS_PRIMARY_HOST:?required} $${REDIS_PORT:-6379} $${REDIS_SENTINEL_QUORUM:-2}
+        sentinel auth-pass observeweaver $${REDIS_PASSWORD:?required}
+        sentinel down-after-milliseconds observeweaver 5000
+        sentinel failover-timeout observeweaver 60000
+        sentinel parallel-syncs observeweaver 1
+        EOF
+        exec redis-server /tmp/observeweaver-sentinel.conf --sentinel
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+    depends_on:
+      redis:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [redis]
+
   mongodb:
     image: ${MONGODB_IMAGE:?required}
     <<: *restart
@@ -230,3 +288,4 @@ volumes:
   opensearch-data:
   graylog-journal:
   zabbix-postgresql-data:
+  redis-data:

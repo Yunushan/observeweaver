@@ -56,6 +56,8 @@ network:
     opensearch: 9200
     opensearchTransport: 9300
     mongodb: 27017
+    redis: 6379
+    redisSentinel: 26379
 
 tls:
   # Multi-host Compose expects an external load balancer to terminate HTTPS.
@@ -78,6 +80,7 @@ storage:
     mongodb: 50Gi
     postgresql: 50Gi
     zabbixPostgresql: 50Gi
+    redis: 50Gi
 
 retention:
   metricsDays: 30
@@ -118,6 +121,10 @@ components:
     version: "2.19.5"
     replicas: 3
     javaOpts: -Xms8g -Xmx8g
+  redis:
+    enabled: true
+    version: "8.8.0"
+    replicas: 3
 
 dependencies:
   mongodb:

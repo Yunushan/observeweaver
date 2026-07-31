@@ -16,6 +16,7 @@ only at deployment time.
 | Graylog | Log ingestion, processing, search UI | Journal plus MongoDB metadata |
 | OpenSearch/Data Node | Graylog search indices | Dedicated volume per member |
 | MongoDB | Graylog configuration/metadata | Replica-set volume per member |
+| Redis | Optional application cache, queue, and ephemeral state | AOF/RDB volume per member |
 
 ## Data paths
 
@@ -27,6 +28,8 @@ only at deployment time.
 - Graylog journals incoming messages and stores searchable indices in
   OpenSearch or Graylog Data Node.
 - MongoDB stores Graylog metadata, not the log messages themselves.
+- Redis is not coupled to Graylog; applications opt in through their own Redis
+  client configuration.
 - Traces are not durable until an external trace exporter/backend is configured.
 
 ## HA semantics
@@ -46,6 +49,9 @@ Replicas do not mean the same thing across the stack:
   one index replica to survive one data-node loss.
 - MongoDB should use three data-bearing members without an arbiter for
   production.
+- Redis uses one password-protected primary in standalone mode. Cluster mode
+  uses one primary, two replicas, and three Sentinels; applications must use
+  Sentinel discovery rather than a hard-coded primary address.
 
 ## Deployment engines
 

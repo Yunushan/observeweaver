@@ -1,0 +1,21 @@
+[Unit]
+Description=ObserveWeaver Redis Sentinel
+After=redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=redis
+Group=redis
+ExecStart={{ observeweaver_redis_install_dir }}/bin/redis-server {{ observeweaver_config_root }}/redis/sentinel.conf --sentinel
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths={{ observeweaver_data_root }}/redis {{ observeweaver_config_root }}/redis
+
+[Install]
+WantedBy=multi-user.target

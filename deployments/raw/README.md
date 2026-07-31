@@ -57,6 +57,10 @@ CONFIG_FILE=config/examples/raw-cluster.yml scripts/observeweaver.sh deploy --ye
   The installer issues per-node SAN certificates and makes Graylog trust that
   CA; replace it with a managed corporate CA only through a planned rotation.
 - Configure UDP load balancing separately from HTTP/TCP.
+- Redis is built from the checksum-verified Redis 8.8.0 source archive and is
+  bound to loopback plus its configured data-node address. In cluster mode,
+  set firewall rules for Redis `6379` and Sentinel `26379` only between Redis
+  data nodes and approved workloads; clients must use Sentinel discovery.
 - Create Graylog GELF/Beats/Syslog inputs in the UI using the reserved ports
   from the canonical config; opening a service port does not create an input.
 

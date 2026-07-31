@@ -17,10 +17,11 @@ ObserveWeaver installs and configures:
   and K3s/RKE2)
 - Graylog Open
 - OpenSearch
+- Redis Community Edition (optional cache, queue, and ephemeral state service)
 
 It also manages the dependencies the requested stack cannot work without:
-MongoDB for Graylog, and an external PostgreSQL connection for active-active
-Grafana.
+MongoDB for Graylog, Redis for optional application state, and an external
+PostgreSQL connection for active-active Grafana.
 
 ## Why this repository exists
 
@@ -78,6 +79,7 @@ matrix](docs/support-matrix.md).
 | Graylog | 7.1.6 | No rolling upgrade |
 | OpenSearch for Graylog | 2.19.5 | 2.19.6 and 3.x are rejected |
 | MongoDB | 8.0.28 | Required Graylog dependency |
+| Redis Community Edition | 8.8.0 | Password-protected, AOF persistence; three-member Sentinel profile in cluster mode |
 
 The machine-readable locks are in [`versions/`](versions/). Graylog's current
 [compatibility matrix](https://go2docs.graylog.org/current/downloading_and_installing_graylog/compatibility_matrix.htm)
@@ -106,9 +108,9 @@ CONFIG_FILE=config/production.yml scripts/observeweaver.sh verify
 ```
 
 The example binds admin ports to a configurable address. Put Grafana and
-Graylog behind a TLS reverse proxy; never expose MongoDB or OpenSearch directly.
-The Compose backend network is internal and those database ports are not
-published. `tls.mode: provided` records the certificate paths expected by that
+Graylog behind a TLS reverse proxy; never expose MongoDB, OpenSearch, or Redis
+directly. The Compose backend network is internal and those database ports are
+not published. `tls.mode: provided` records the certificate paths expected by that
 external proxy; ObserveWeaver does not copy private keys into containers.
 
 ## Quick start: 3-node RKE2
@@ -158,6 +160,7 @@ network:
   ports:
     grafana: 3000
     graylogHttp: 9000
+    redis: 6379
     otlpGrpc: 4317
 
 tls:
@@ -170,6 +173,9 @@ components:
   opensearch:
     version: "2.19.5"
     replicas: 3
+  redis:
+    version: "8.8.0"
+    replicas: 3       # Sentinel HA profile in cluster mode
 ```
 
 The JSON Schema provides editor completion. Semantic validation additionally
@@ -205,6 +211,7 @@ flowchart LR
     Sources["GELF / Syslog / inputs"] --> Graylog["Graylog"]
     Graylog --> Search["Data Node / OpenSearch"]
     Graylog --> Mongo["MongoDB metadata"]
+    Apps --> Redis["Optional Redis cache / queue"]
 ```
 
 Metrics are durable in Prometheus. Logs become durable after a Graylog input is
@@ -238,7 +245,7 @@ tests/                         Deterministic configuration tests
 - Rendered files contain references, not secret values.
 - Images, product versions, charts, downloaded binaries, and GitHub Actions are
   pinned; native x86_64 downloads with published hashes are verified.
-- OpenSearch and MongoDB are not publicly published in Compose.
+- OpenSearch, MongoDB, and Redis are not publicly published in Compose.
 - Kubernetes chart archives are checksum-verified before Helm receives them.
 - `latest` tags and production plaintext mode fail validation.
 

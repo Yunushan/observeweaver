@@ -47,10 +47,7 @@ class ConfigTests(unittest.TestCase):
         result = validate_config(self.load_example("docker-cluster.yml"))
         self.assertEqual([], result.errors)
         self.assertTrue(
-            any(
-                "plaintext, unauthenticated east-west" in warning
-                for warning in result.warnings
-            )
+            any("plaintext, unauthenticated east-west" in warning for warning in result.warnings)
         )
 
     def test_cluster_requires_three_nodes(self) -> None:
@@ -70,6 +67,25 @@ class ConfigTests(unittest.TestCase):
         config["components"]["zabbix"]["version"] = "7.4.1"
         result = validate_config(config)
         self.assertTrue(any("tested pinset (7.0.28)" in error for error in result.errors))
+
+    def test_redis_uses_the_tested_pin_and_cluster_quorum(self) -> None:
+        config = self.load_example("standalone.yml")
+        config["components"]["redis"]["version"] = "latest"
+        result = validate_config(config)
+        self.assertTrue(any("components.redis.version" in error for error in result.errors))
+
+        config = self.load_example("cluster.yml")
+        config["components"]["redis"]["replicas"] = 2
+        result = validate_config(config)
+        self.assertTrue(any("Redis Sentinel" in error for error in result.errors))
+
+    def test_native_windows_redis_is_rejected(self) -> None:
+        config = self.load_example("windows-native.yml")
+        config["components"]["redis"]["enabled"] = True
+        result = validate_config(config)
+        self.assertTrue(
+            any("Redis has no supported native Windows" in error for error in result.errors)
+        )
 
     def test_zabbix_ha_requires_an_external_database(self) -> None:
         config = self.load_example("cluster.yml")
@@ -190,9 +206,7 @@ class ConfigTests(unittest.TestCase):
         config["components"]["grafana"]["replicas"] = 1
         config["dependencies"]["postgresql"]["external"] = False
         result = validate_config(config)
-        self.assertTrue(
-            any("Docker cluster Grafana" in error for error in result.errors)
-        )
+        self.assertTrue(any("Docker cluster Grafana" in error for error in result.errors))
 
     def test_disabled_grafana_does_not_require_external_postgres(self) -> None:
         for example in ("cluster.yml", "docker-cluster.yml", "raw-cluster.yml"):
@@ -245,18 +259,14 @@ class ConfigTests(unittest.TestCase):
 
     def test_all_examples_match_json_schema(self) -> None:
         schema = json.loads(
-            (
-                ROOT / "schema" / "observeweaver-v1alpha1.schema.json"
-            ).read_text(encoding="utf-8")
+            (ROOT / "schema" / "observeweaver-v1alpha1.schema.json").read_text(encoding="utf-8")
         )
         Draft202012Validator.check_schema(schema)
         validator = Draft202012Validator(schema)
         for path in (ROOT / "config" / "examples").glob("*.yml"):
             with self.subTest(path=path):
                 errors = sorted(
-                    validator.iter_errors(
-                        yaml.safe_load(path.read_text(encoding="utf-8"))
-                    ),
+                    validator.iter_errors(yaml.safe_load(path.read_text(encoding="utf-8"))),
                     key=lambda error: list(error.path),
                 )
                 self.assertEqual([], errors)
@@ -267,13 +277,13 @@ class RenderTests(unittest.TestCase):
         config = load_config(ROOT / "config" / "examples" / "standalone.yml")
         with tempfile.TemporaryDirectory() as directory:
             created = render(config, directory)
-            self.assertEqual(13, len(created))
+            self.assertEqual(14, len(created))
             combined = "\n".join(path.read_text(encoding="utf-8") for path in created)
             self.assertNotIn("GRAFANA_ADMIN_PASSWORD=", combined)
             self.assertIn("PROMETHEUS_VERSION=3.13.1", combined)
             self.assertIn(
                 "COMPOSE_PROFILES=prometheus,alertmanager,grafana,"
-                "opentelemetry,zabbix,graylog,opensearch,mongodb",
+                "opentelemetry,zabbix,graylog,opensearch,redis,mongodb",
                 combined,
             )
 
@@ -281,27 +291,24 @@ class RenderTests(unittest.TestCase):
         config = load_config(ROOT / "config" / "examples" / "standalone.yml")
         with tempfile.TemporaryDirectory() as directory:
             render(config, directory)
-            environment = (
-                Path(directory) / "production" / "docker" / ".env.generated"
-            ).read_text(encoding="utf-8")
+            environment = (Path(directory) / "production" / "docker" / ".env.generated").read_text(
+                encoding="utf-8"
+            )
             self.assertIn("ZABBIX_VERSION=7.0.28", environment)
             self.assertIn("ZABBIX_SERVER_PORT=10051", environment)
             self.assertIn("ZABBIX_WEB_PORT=8080", environment)
             self.assertIn(
-                "ZABBIX_SERVER_IMAGE="
-                "zabbix/zabbix-server-pgsql@sha256:",
+                "ZABBIX_SERVER_IMAGE=zabbix/zabbix-server-pgsql@sha256:",
                 environment,
             )
             self.assertIn("COMPOSE_PROFILES=", environment)
             self.assertIn("zabbix", environment)
 
     def test_docker_image_locks_are_immutable_and_match_the_lockfile(self) -> None:
-        lockfile = yaml.safe_load(
-            (ROOT / "versions" / "stable.yml").read_text(encoding="utf-8")
-        )
+        lockfile = yaml.safe_load((ROOT / "versions" / "stable.yml").read_text(encoding="utf-8"))
         self.assertEqual(lockfile["containerImages"], DOCKER_IMAGE_LOCKS)
         self.assertEqual(set(DOCKER_IMAGE_TAGS), set(DOCKER_IMAGE_LOCKS))
-        self.assertEqual(10, len(DOCKER_IMAGE_LOCKS))
+        self.assertEqual(11, len(DOCKER_IMAGE_LOCKS))
         for name, image in DOCKER_IMAGE_LOCKS.items():
             repository, digest = image.split("@", 1)
             self.assertTrue(repository)
@@ -309,28 +316,25 @@ class RenderTests(unittest.TestCase):
             self.assertEqual(repository, DOCKER_IMAGE_TAGS[name].rsplit(":", 1)[0])
 
         for compose_name in ("compose.yml", "compose.cluster-node.yml"):
-            compose = (
-                ROOT / "deployments" / "docker" / compose_name
-            ).read_text(encoding="utf-8")
+            compose = (ROOT / "deployments" / "docker" / compose_name).read_text(encoding="utf-8")
             self.assertNotIn("_VERSION", compose)
             self.assertRegex(compose, r"image: \$\{[A-Z_]+_IMAGE:\?[^}]+}")
 
     def test_kubernetes_image_post_renderer_is_digest_only_and_fail_closed(self) -> None:
         lockfile = yaml.safe_load(
-            (ROOT / "versions" / "kubernetes-images.lock.yml").read_text(
-                encoding="utf-8"
-            )
+            (ROOT / "versions" / "kubernetes-images.lock.yml").read_text(encoding="utf-8")
         )
         locks = lockfile["chartImages"]
-        self.assertEqual(24, len(locks))
+        self.assertEqual(25, len(locks))
         self.assertIn("postgres:17", locks)
+        self.assertIn("redis:8.8.0", locks)
         for image in locks.values():
             self.assertRegex(image, r"^[^@]+@sha256:[0-9a-f]{64}$")
 
         script = ROOT / "scripts" / "pin_kubernetes_images.py"
         known = subprocess.run(
             [sys.executable, str(script)],
-            input="        image: \"mongo:8.0.28\"\n",
+            input='        image: "mongo:8.0.28"\n',
             capture_output=True,
             text=True,
             check=False,
@@ -360,13 +364,9 @@ class RenderTests(unittest.TestCase):
             render(config, directory)
             docker_root = Path(directory) / "production" / "docker"
             environment = (docker_root / ".env.generated").read_text(encoding="utf-8")
-            prometheus = (docker_root / "configs" / "prometheus.yml").read_text(
-                encoding="utf-8"
-            )
+            prometheus = (docker_root / "configs" / "prometheus.yml").read_text(encoding="utf-8")
             datasources = yaml.safe_load(
-                (docker_root / "configs" / "grafana-datasources.yml").read_text(
-                    encoding="utf-8"
-                )
+                (docker_root / "configs" / "grafana-datasources.yml").read_text(encoding="utf-8")
             )
             self.assertIn("COMPOSE_PROFILES=prometheus,opentelemetry", environment)
             self.assertNotIn("job_name: alertmanager", prometheus)
@@ -379,9 +379,7 @@ class RenderTests(unittest.TestCase):
             render(config, directory)
             docker_root = Path(directory) / "production" / "docker"
             datasources = yaml.safe_load(
-                (docker_root / "configs" / "grafana-datasources.yml").read_text(
-                    encoding="utf-8"
-                )
+                (docker_root / "configs" / "grafana-datasources.yml").read_text(encoding="utf-8")
             )
             self.assertEqual([], datasources["datasources"])
 
@@ -391,14 +389,9 @@ class RenderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             render(config, directory)
             inventory = (
-                Path(directory)
-                / "production"
-                / "ansible"
-                / "inventory.generated.ini"
+                Path(directory) / "production" / "ansible" / "inventory.generated.ini"
             ).read_text(encoding="utf-8")
-            telemetry_group = inventory.split("[opentelemetry]\n", 1)[1].split(
-                "\n[", 1
-            )[0]
+            telemetry_group = inventory.split("[opentelemetry]\n", 1)[1].split("\n[", 1)[0]
             self.assertEqual("", telemetry_group)
 
     def test_raw_group_vars_include_declared_platform(self) -> None:
@@ -406,12 +399,9 @@ class RenderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             render(config, directory)
             group_vars = yaml.safe_load(
-                (
-                    Path(directory)
-                    / "production"
-                    / "ansible"
-                    / "group_vars.generated.yml"
-                ).read_text(encoding="utf-8")
+                (Path(directory) / "production" / "ansible" / "group_vars.generated.yml").read_text(
+                    encoding="utf-8"
+                )
             )
             self.assertEqual(config["platform"], group_vars["observeweaver"]["platform"])
 
@@ -427,9 +417,7 @@ class RenderTests(unittest.TestCase):
             node["address"] = f"2001:db8::{index}"
         with tempfile.TemporaryDirectory() as directory:
             render(config, directory)
-            node_root = (
-                Path(directory) / "production" / "docker" / "nodes" / "obs-01"
-            )
+            node_root = Path(directory) / "production" / "docker" / "nodes" / "obs-01"
             environment = (node_root / ".env.generated").read_text(encoding="utf-8")
             prometheus = (node_root / "prometheus.yml").read_text(encoding="utf-8")
             self.assertIn("NODE_ENDPOINT_ADDRESS=[2001:db8::1]", environment)
@@ -451,15 +439,36 @@ class RenderTests(unittest.TestCase):
             self.assertNotIn("ZABBIX_DATABASE_HOST=", combined)
             for node in ("obs-01", "obs-02", "obs-03"):
                 environment = (
-                    Path(directory)
-                    / "production"
-                    / "docker"
-                    / "nodes"
-                    / node
-                    / ".env.generated"
+                    Path(directory) / "production" / "docker" / "nodes" / node / ".env.generated"
                 ).read_text(encoding="utf-8")
                 self.assertIn("zabbix", environment)
                 self.assertNotIn("zabbix-postgresql", environment)
+                self.assertIn("REDIS_PRIMARY_HOST=obs-01", environment)
+                self.assertIn("REDIS_SENTINEL_QUORUM=2", environment)
+
+    def test_redis_is_rendered_with_password_protection_and_persistence(self) -> None:
+        compose = yaml.safe_load(
+            (ROOT / "deployments" / "docker" / "compose.yml").read_text(encoding="utf-8")
+        )
+        redis = compose["services"]["redis"]
+        self.assertEqual(["redis"], redis["profiles"])
+        self.assertIn("REDIS_PASSWORD", redis["environment"])
+        self.assertIn("redis-data:/data", redis["volumes"])
+        self.assertNotIn("ports", redis)
+
+        raw_tasks = (
+            ROOT
+            / "deployments"
+            / "raw"
+            / "ansible"
+            / "roles"
+            / "observeweaver"
+            / "tasks"
+            / "redis.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("observeweaver_redis_source_url", raw_tasks)
+        self.assertIn("observeweaver_redis_source_sha256", raw_tasks)
+        self.assertIn("Redis Sentinel", raw_tasks)
 
     def test_cluster_graylog_uses_automatic_leader_election(self) -> None:
         raw_template = (
@@ -475,9 +484,9 @@ class RenderTests(unittest.TestCase):
         self.assertIn("leader_election_mode = automatic", raw_template)
 
         compose = yaml.safe_load(
-            (
-                ROOT / "deployments" / "docker" / "compose.cluster-node.yml"
-            ).read_text(encoding="utf-8")
+            (ROOT / "deployments" / "docker" / "compose.cluster-node.yml").read_text(
+                encoding="utf-8"
+            )
         )
         graylog_environment = compose["services"]["graylog"]["environment"]
         self.assertEqual(
@@ -502,9 +511,7 @@ class RenderTests(unittest.TestCase):
 
     def test_zabbix_is_covered_by_deployment_verification(self) -> None:
         docker_verifier = (ROOT / "scripts" / "verify.sh").read_text(encoding="utf-8")
-        deploy_script = (ROOT / "scripts" / "observeweaver.sh").read_text(
-            encoding="utf-8"
-        )
+        deploy_script = (ROOT / "scripts" / "observeweaver.sh").read_text(encoding="utf-8")
         raw_verifier = (
             ROOT / "deployments" / "raw" / "ansible" / "playbooks" / "verify.yml"
         ).read_text(encoding="utf-8")
@@ -534,9 +541,7 @@ class RenderTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     "http://obs-01:9200,http://obs-02:9200,http://obs-03:9200",
-                    override["services"]["graylog"]["environment"][
-                        "GRAYLOG_ELASTICSEARCH_HOSTS"
-                    ],
+                    override["services"]["graylog"]["environment"]["GRAYLOG_ELASTICSEARCH_HOSTS"],
                 )
 
     def test_raw_zabbix_uses_the_locked_lts_packages(self) -> None:
@@ -570,14 +575,9 @@ class RenderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             render(config, directory)
             inventory = (
-                Path(directory)
-                / "production"
-                / "ansible"
-                / "inventory.generated.ini"
+                Path(directory) / "production" / "ansible" / "inventory.generated.ini"
             ).read_text(encoding="utf-8")
-            prometheus_group = inventory.split("[prometheus]\n", 1)[1].split(
-                "\n[", 1
-            )[0]
+            prometheus_group = inventory.split("[prometheus]\n", 1)[1].split("\n[", 1)[0]
             self.assertIn("obs-01", prometheus_group)
             self.assertIn("obs-02", prometheus_group)
             self.assertNotIn("obs-03", prometheus_group)
@@ -595,9 +595,7 @@ class RenderTests(unittest.TestCase):
                 ).read_text(encoding="utf-8")
             )
             self.assertEqual(8889, values["ports"]["metrics"]["servicePort"])
-            self.assertEqual(
-                8888, values["ports"]["internal-metrics"]["servicePort"]
-            )
+            self.assertEqual(8888, values["ports"]["internal-metrics"]["servicePort"])
             self.assertTrue(values["serviceMonitor"]["enabled"])
             for receiver in ("jaeger", "zipkin"):
                 self.assertIsNone(values["config"]["receivers"][receiver])
@@ -610,10 +608,7 @@ class RenderTests(unittest.TestCase):
                 self.assertFalse(values["ports"][port]["enabled"])
             graylog_values = yaml.safe_load(
                 (
-                    Path(directory)
-                    / "production"
-                    / "kubernetes"
-                    / "graylog.values.generated.yml"
+                    Path(directory) / "production" / "kubernetes" / "graylog.values.generated.yml"
                 ).read_text(encoding="utf-8")
             )
             self.assertEqual(
@@ -626,25 +621,17 @@ class RenderTests(unittest.TestCase):
             )
             self.assertEqual(
                 "1",
-                graylog_values["graylog"]["env"][
-                    "GRAYLOG_ELASTICSEARCH_REPLICAS"
-                ],
+                graylog_values["graylog"]["env"]["GRAYLOG_ELASTICSEARCH_REPLICAS"],
             )
             self.assertEqual(
                 "90",
-                graylog_values["graylog"]["env"][
-                    "GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES"
-                ],
+                graylog_values["graylog"]["env"]["GRAYLOG_ELASTICSEARCH_MAX_NUMBER_OF_INDICES"],
             )
             self.assertEqual(
                 "9300",
-                graylog_values["datanode"]["env"][
-                    "GRAYLOG_DATANODE_OPENSEARCH_TRANSPORT_PORT"
-                ],
+                graylog_values["datanode"]["env"]["GRAYLOG_DATANODE_OPENSEARCH_TRANSPORT_PORT"],
             )
-            self.assertFalse(
-                graylog_values["ingress"]["config"]["defaultBackend"]["enabled"]
-            )
+            self.assertFalse(graylog_values["ingress"]["config"]["defaultBackend"]["enabled"])
 
     def test_kubernetes_zabbix_ha_uses_external_secret_backed_database(self) -> None:
         config = load_config(ROOT / "config" / "examples" / "cluster.yml")
@@ -652,21 +639,44 @@ class RenderTests(unittest.TestCase):
             render(config, directory)
             values = yaml.safe_load(
                 (
-                    Path(directory)
-                    / "production"
-                    / "kubernetes"
-                    / "zabbix.values.generated.yml"
+                    Path(directory) / "production" / "kubernetes" / "zabbix.values.generated.yml"
                 ).read_text(encoding="utf-8")
             )
         self.assertTrue(values["zabbixServer"]["zabbixServerHA"]["enabled"])
         self.assertEqual(3, values["zabbixServer"]["replicaCount"])
         self.assertFalse(values["postgresql"]["enabled"])
+        self.assertEqual("observeweaver-secrets", values["postgresAccess"]["existingSecretName"])
+        self.assertEqual("ZABBIX_DATABASE_PASSWORD", values["postgresAccess"]["secretPasswordKey"])
+
+    def test_kubernetes_redis_cluster_renders_sentinel_and_pvc(self) -> None:
+        config = load_config(ROOT / "config" / "examples" / "cluster.yml")
+        with tempfile.TemporaryDirectory() as directory:
+            render(config, directory)
+            manifest = yaml.safe_load(
+                (
+                    Path(directory) / "production" / "kubernetes" / "redis.values.generated.yml"
+                ).read_text(encoding="utf-8")
+            )
+        self.assertEqual("List", manifest["kind"])
+        stateful_set = next(item for item in manifest["items"] if item["kind"] == "StatefulSet")
+        self.assertEqual(3, stateful_set["spec"]["replicas"])
         self.assertEqual(
-            "observeweaver-secrets", values["postgresAccess"]["existingSecretName"]
+            "50Gi",
+            stateful_set["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"][
+                "storage"
+            ],
         )
-        self.assertEqual(
-            "ZABBIX_DATABASE_PASSWORD", values["postgresAccess"]["secretPasswordKey"]
+        self.assertEqual(2, len(stateful_set["spec"]["template"]["spec"]["containers"]))
+        sentinel_service = next(
+            item
+            for item in manifest["items"]
+            if item["kind"] == "Service"
+            and item["metadata"]["name"] == "observeweaver-redis-sentinel"
         )
+        self.assertEqual(26379, sentinel_service["spec"]["ports"][0]["port"])
+        network_policy = next(item for item in manifest["items"] if item["kind"] == "NetworkPolicy")
+        allowed_ports = network_policy["spec"]["ingress"][0]["ports"]
+        self.assertEqual([6379, 26379], [item["port"] for item in allowed_ports])
 
     def test_kubernetes_values_honor_monitoring_component_selection(self) -> None:
         config = load_config(ROOT / "config" / "examples" / "cluster.yml")
@@ -682,9 +692,7 @@ class RenderTests(unittest.TestCase):
                 ).read_text(encoding="utf-8")
             )
             self.assertFalse(
-                values["grafana"]["sidecar"]["datasources"][
-                    "defaultDatasourceEnabled"
-                ]
+                values["grafana"]["sidecar"]["datasources"]["defaultDatasourceEnabled"]
             )
 
         config = load_config(ROOT / "config" / "examples" / "cluster.yml")
@@ -714,6 +722,7 @@ class SecretTests(unittest.TestCase):
             values["GRAFANA_ADMIN_PASSWORD"], values["OPENSEARCH_INITIAL_ADMIN_PASSWORD"]
         )
         self.assertEqual("", values["MONGODB_URI"])
+        self.assertTrue(values["REDIS_PASSWORD"])
 
     def test_secret_file_refuses_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

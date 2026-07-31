@@ -55,6 +55,16 @@
     - not (observeweaver.dependencies.mongodb.external | bool)
     - inventory_hostname in groups.get('mongodb', [])
 
+- name: Install Redis and Redis Sentinel
+  ansible.builtin.include_tasks: redis.yml
+  vars:
+    redis_password: >-
+      {{ lookup('ansible.builtin.ini', 'REDIS_PASSWORD', type='properties',
+      file=observeweaver_secret_file) }}
+  when:
+    - observeweaver.components.redis.enabled | bool
+    - inventory_hostname in groups.get('redis', [])
+
 - name: Install OpenSearch
   ansible.builtin.include_tasks: opensearch.yml
   when:
