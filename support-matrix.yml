@@ -1,10 +1,30 @@
 schemaVersion: 1
-updated: "2026-07-30"
+updated: "2026-08-06"
 
 tiers:
   1: Maintained path with automated configuration and syntax checks
   2: Compatible path requiring environment-specific runtime validation
   3: Preview or client-only path
+
+components:
+  kafka:
+    version: "4.3.1"
+    distributions:
+      apache: "4.3.1"
+      confluent: "8.3.0 Community (cp-kafka)"
+    mode: KRaft
+    raw: "checksum-verified Apache binary and systemd service"
+    docker: "locked official Apache image; combined broker/controller"
+    kubernetes: "locked-image StatefulSet with PVCs and private NetworkPolicy"
+    nativeWindows: unsupported
+  elasticStack:
+    version: "9.4.2"
+    members: [elasticsearch, kibana, logstash]
+    sameVersionRequired: true
+    nativeLinux: "signed Elastic 9.x packages with generated per-node TLS"
+    docker: "locked official images; standalone uses authenticated internal HTTP and managed writer bootstrap; multi-host preview is trusted-host"
+    kubernetes: "locked-image StatefulSet/Deployment manifests with TLS and writer bootstrap"
+    nativeWindows: unsupported
 
 platforms:
   - platform: ubuntu-22.04

@@ -27,7 +27,11 @@ COMPONENTS = {
     "zabbix",
     "graylog",
     "opensearch",
+    "elasticsearch",
+    "kibana",
+    "logstash",
     "redis",
+    "kafka",
 }
 REQUIRED_PORTS = {
     "prometheus",
@@ -50,9 +54,16 @@ REQUIRED_PORTS = {
     "graylogSyslogUdp",
     "opensearch",
     "opensearchTransport",
+    "elasticsearch",
+    "elasticsearchTransport",
+    "kibana",
+    "logstashBeats",
+    "logstashApi",
     "mongodb",
     "redis",
     "redisSentinel",
+    "kafka",
+    "kafkaController",
 }
 NODE_ROLES = {"control", "metrics", "telemetry", "logs", "data", "ingress"}
 HOSTNAME_RE = re.compile(
@@ -69,10 +80,13 @@ REQUIRED_STORAGE_SIZES = {
     "grafana",
     "graylogJournal",
     "opensearch",
+    "elasticsearch",
+    "logstash",
     "mongodb",
     "postgresql",
     "zabbixPostgresql",
     "redis",
+    "kafka",
 }
 SUPPORTED_PLATFORM_VERSIONS = {
     "ubuntu": {"22.04", "24.04", "26.04"},
@@ -90,7 +104,15 @@ TESTED_COMPONENT_VERSIONS = {
     "zabbix": "7.0.28",
     "graylog": "7.1.6",
     "opensearch": "2.19.5",
+    "elasticsearch": "9.4.2",
+    "kibana": "9.4.2",
+    "logstash": "9.4.2",
     "redis": "8.8.0",
+    "kafka": "4.3.1",
+}
+KAFKA_DISTRIBUTIONS = {
+    "apache": "4.3.1",
+    "confluent": "8.3.0",
 }
 TESTED_DEPENDENCY_VERSIONS = {
     "mongodb": "8.0.28",
@@ -345,7 +367,11 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
             "zabbix": "metrics",
             "graylog": "logs",
             "opensearch": "data",
+            "elasticsearch": "data",
+            "kibana": "ingress",
+            "logstash": "logs",
             "redis": "data",
+            "kafka": "data",
         }
         for component_name, role in role_requirements.items():
             if not _get(config, f"components.{component_name}.enabled", False):
@@ -458,12 +484,23 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
             result.errors.append(f"components.{name}.version: must be a pinned version.")
         elif version.lower() == "latest":
             result.errors.append(f"components.{name}.version: 'latest' is not reproducible.")
-        elif version != TESTED_COMPONENT_VERSIONS[name]:
-            result.errors.append(
-                f"components.{name}.version: {version!r} is outside the tested "
-                f"pinset ({TESTED_COMPONENT_VERSIONS[name]}). Update the artifact "
-                "lock and integration tests before changing it."
-            )
+        else:
+            expected_version = TESTED_COMPONENT_VERSIONS[name]
+            if name == "kafka":
+                kafka_distribution = components[name].get("distribution", "apache")
+                if kafka_distribution not in KAFKA_DISTRIBUTIONS:
+                    result.errors.append(
+                        "components.kafka.distribution: must be one of "
+                        f"{sorted(KAFKA_DISTRIBUTIONS)}."
+                    )
+                else:
+                    expected_version = KAFKA_DISTRIBUTIONS[kafka_distribution]
+            if version != expected_version:
+                result.errors.append(
+                    f"components.{name}.version: {version!r} is outside the tested "
+                    f"pinset ({expected_version}). Update the artifact "
+                    "lock and integration tests before changing it."
+                )
 
     if _get(config, "components.graylog.enabled", False):
         if not _get(config, "components.opensearch.enabled", False):
@@ -513,6 +550,47 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
                 "components.redis.replicas: cluster mode uses the Redis Sentinel "
                 "profile and requires exactly 3 members."
             )
+    kafka_enabled = _get(config, "components.kafka.enabled", False)
+    kafka_replicas = _get(config, "components.kafka.replicas", 1)
+    if (
+        kafka_enabled
+        and mode == "cluster"
+        and isinstance(kafka_replicas, int)
+        and not isinstance(kafka_replicas, bool)
+    ):
+        if kafka_replicas < 3 or kafka_replicas % 2 == 0:
+            result.errors.append(
+                "components.kafka.replicas: cluster mode requires an odd number of at least 3 "
+                "for the KRaft controller quorum."
+            )
+    elasticsearch_enabled = _get(config, "components.elasticsearch.enabled", False)
+    kibana_enabled = _get(config, "components.kibana.enabled", False)
+    logstash_enabled = _get(config, "components.logstash.enabled", False)
+    if (kibana_enabled or logstash_enabled) and not elasticsearch_enabled:
+        result.errors.append(
+            "components.elasticsearch.enabled: must be true when Kibana or Logstash is enabled."
+        )
+    elastic_components = {
+        name: str(_get(config, f"components.{name}.version", ""))
+        for name in ("elasticsearch", "kibana", "logstash")
+        if _get(config, f"components.{name}.enabled", False)
+    }
+    if len(set(elastic_components.values())) > 1:
+        result.errors.append(
+            "components.elasticsearch, components.kibana, and components.logstash "
+            "must use the same pinned Elastic Stack version."
+        )
+    if mode == "cluster" and elasticsearch_enabled:
+        elasticsearch_replicas = _get(config, "components.elasticsearch.replicas", 1)
+        if (
+            isinstance(elasticsearch_replicas, int)
+            and not isinstance(elasticsearch_replicas, bool)
+            and (elasticsearch_replicas < 3 or elasticsearch_replicas % 2 == 0)
+        ):
+            result.errors.append(
+                "components.elasticsearch.replicas: cluster mode requires an odd "
+                "number of at least 3 for quorum-safe master/data nodes."
+            )
     if engine in {"k3s", "rke2"} and isinstance(ports, dict):
         fixed_chart_ports = {
             "alertmanagerCluster": 9094,
@@ -544,6 +622,18 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
         result.errors.append(
             "Redis has no supported native Windows deployment in ObserveWeaver. "
             "Use Docker on WSL2/Linux VM/remote Linux, or a Linux server."
+        )
+    if family == "windows" and engine == "raw" and (
+        elasticsearch_enabled or kibana_enabled or logstash_enabled
+    ):
+        result.errors.append(
+            "Native Windows Elastic Stack deployment is not supported by the maintained "
+            "package/TLS automation; use Docker, WSL2, or a Linux server."
+        )
+    if family == "windows" and engine == "raw" and kafka_enabled:
+        result.errors.append(
+            "Native Windows Kafka deployment is not supported by the maintained KRaft "
+            "package automation; use Docker, WSL2, or a Linux server."
         )
     if family == "windows" and engine == "raw" and mode == "cluster":
         result.errors.append(
@@ -769,6 +859,22 @@ def validate_config(config: dict[str, Any]) -> ValidationResult:
             "Docker cluster OpenSearch uses plaintext, unauthenticated east-west "
             "traffic. Restrict the host network and ports 9200/9300 to trusted "
             "data-node addresses, or use raw/K3s/RKE2 for a secured backend."
+        )
+    if engine == "docker" and mode == "cluster" and elasticsearch_enabled:
+        result.warnings.append(
+            "Docker cluster Elastic Stack traffic is restricted to the configured "
+            "data/logs/ingress nodes and uses the trusted-host transport profile; use "
+            "raw Linux when authenticated internal certificates are required."
+        )
+    if kafka_enabled:
+        kafka_distribution = _get(
+            config, "components.kafka.distribution", "apache"
+        )
+        result.warnings.append(
+            f"The generated {kafka_distribution} Kafka baseline has no TLS/SASL and "
+            "uses private-network KRaft listeners. Restrict broker/controller ports "
+            "to trusted nodes and configure operator-managed TLS/SASL before exposing "
+            "Kafka to external clients."
         )
     if family == "windows":
         result.warnings.append(

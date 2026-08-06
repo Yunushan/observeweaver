@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import ipaddress
 import json
 from pathlib import Path
@@ -23,8 +25,13 @@ DOCKER_IMAGE_TAGS = {
     "zabbixWeb": "zabbix/zabbix-web-nginx-pgsql:alpine-7.0.28",
     "mongodb": "mongo:8.0.28",
     "opensearch": "opensearchproject/opensearch:2.19.5",
+    "elasticsearch": "docker.elastic.co/elasticsearch/elasticsearch:9.4.2",
+    "kibana": "docker.elastic.co/kibana/kibana:9.4.2",
+    "logstash": "docker.elastic.co/logstash/logstash:9.4.2",
     "graylog": "graylog/graylog:7.1.6",
     "redis": "redis:8.8.0",
+    "kafka": "apache/kafka:4.3.1",
+    "kafkaConfluent": "confluentinc/cp-kafka:8.3.0",
 }
 
 DOCKER_IMAGE_LOCKS = {
@@ -42,7 +49,7 @@ DOCKER_IMAGE_LOCKS = {
         "f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6"
     ),
     "postgresql": (
-        "postgres@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d"
+        "postgres@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317"
     ),
     "zabbixServer": (
         "zabbix/zabbix-server-pgsql@sha256:"
@@ -52,15 +59,34 @@ DOCKER_IMAGE_LOCKS = {
         "zabbix/zabbix-web-nginx-pgsql@sha256:"
         "4d109f30358363e4483d4aac43eeec80eb4ec605c9d300f4c235475056c5b06e"
     ),
-    "mongodb": ("mongo@sha256:5351bff2b5d1563e3fa603a74b9be85ef9323e10aeb0b45cea933a93876e77fd"),
+    "mongodb": ("mongo@sha256:98605bfa1bb2a15dd82109e1d78ad31527a9a744909fab4606076fa71a0ae515"),
     "opensearch": (
         "opensearchproject/opensearch@sha256:"
         "4ee82ecb35d837a6186c81aaa64c8a5bce71aa956edbd87f1f684ab56af52c44"
+    ),
+    "elasticsearch": (
+        "docker.elastic.co/elasticsearch/elasticsearch@sha256:"
+        "be5f49784ff5ec8a5b5d7ba17f944d9d6b10c067f596ee93e6b6cb82d2dd874c"
+    ),
+    "kibana": (
+        "docker.elastic.co/kibana/kibana@sha256:"
+        "b9749a7672939d1a96dd9c99b86fd84634aab8d03b0889f02177d881aea3eb01"
+    ),
+    "logstash": (
+        "docker.elastic.co/logstash/logstash@sha256:"
+        "532fa8633866e231d14b8e8860488f224f7f354bc63b43b099ddf2a3a87e2845"
     ),
     "graylog": (
         "graylog/graylog@sha256:b9a4fd841e4c49c148043265f579554a3bdadf8137ff381b686c194ccb9a3365"
     ),
     "redis": ("redis@sha256:234c902a2db49461a129e2d4aeff85b28cf20187ed274a67f6e50995fa713c7b"),
+    "kafka": (
+        "apache/kafka@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837"
+    ),
+    "kafkaConfluent": (
+        "confluentinc/cp-kafka@sha256:"
+        "c2cedb691aec9963114fb0b4e45fa49a47bb374a89c241c4ecb68a5fc904e5e3"
+    ),
 }
 
 
@@ -85,6 +111,24 @@ def _host_port(host: str, port: int) -> str:
     return f"{_endpoint_host(host)}:{port}"
 
 
+def _kafka_cluster_id(config: dict[str, Any]) -> str:
+    """Return a stable Kafka KRaft cluster id for this deployment name."""
+    digest = hashlib.sha256(
+        f"observeweaver:{config['metadata']['name']}".encode()
+    ).digest()[:16]
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _kafka_distribution(config: dict[str, Any]) -> str:
+    """Return the selected Kafka distribution, preserving Apache compatibility."""
+    return str(_component(config, "kafka").get("distribution", "apache"))
+
+
+def _kafka_image_lock(config: dict[str, Any]) -> str:
+    key = "kafkaConfluent" if _kafka_distribution(config) == "confluent" else "kafka"
+    return DOCKER_IMAGE_LOCKS[key]
+
+
 def _write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -104,7 +148,11 @@ def _docker_env(config: dict[str, Any]) -> str:
             "zabbix",
             "graylog",
             "opensearch",
+            "elasticsearch",
+            "kibana",
+            "logstash",
             "redis",
+            "kafka",
         )
         if _component(config, name)["enabled"]
     ]
@@ -130,8 +178,20 @@ def _docker_env(config: dict[str, Any]) -> str:
         "GRAYLOG_ENABLED": str(_component(config, "graylog")["enabled"]).lower(),
         "OPENSEARCH_VERSION": _component(config, "opensearch")["version"],
         "OPENSEARCH_ENABLED": str(_component(config, "opensearch")["enabled"]).lower(),
+        "ELASTICSEARCH_VERSION": _component(config, "elasticsearch")["version"],
+        "ELASTICSEARCH_ENABLED": str(_component(config, "elasticsearch")["enabled"]).lower(),
+        "ELASTICSEARCH_SECURITY_ENABLED": "false",
+        "KIBANA_VERSION": _component(config, "kibana")["version"],
+        "KIBANA_ENABLED": str(_component(config, "kibana")["enabled"]).lower(),
+        "LOGSTASH_VERSION": _component(config, "logstash")["version"],
+        "LOGSTASH_ENABLED": str(_component(config, "logstash")["enabled"]).lower(),
         "REDIS_VERSION": _component(config, "redis")["version"],
         "REDIS_ENABLED": str(_component(config, "redis")["enabled"]).lower(),
+        "KAFKA_DISTRIBUTION": _kafka_distribution(config),
+        "KAFKA_VERSION": _component(config, "kafka")["version"],
+        "KAFKA_ENABLED": str(_component(config, "kafka")["enabled"]).lower(),
+        "KAFKA_IMAGE": _kafka_image_lock(config),
+        "KAFKA_CLUSTER_ID": _kafka_cluster_id(config),
         "MONGODB_VERSION": config["dependencies"]["mongodb"]["version"],
         "POSTGRES_VERSION": config["dependencies"]["postgresql"]["version"],
         "PROMETHEUS_IMAGE": DOCKER_IMAGE_LOCKS["prometheus"],
@@ -143,6 +203,9 @@ def _docker_env(config: dict[str, Any]) -> str:
         "ZABBIX_WEB_IMAGE": DOCKER_IMAGE_LOCKS["zabbixWeb"],
         "MONGODB_IMAGE": DOCKER_IMAGE_LOCKS["mongodb"],
         "OPENSEARCH_IMAGE": DOCKER_IMAGE_LOCKS["opensearch"],
+        "ELASTICSEARCH_IMAGE": DOCKER_IMAGE_LOCKS["elasticsearch"],
+        "KIBANA_IMAGE": DOCKER_IMAGE_LOCKS["kibana"],
+        "LOGSTASH_IMAGE": DOCKER_IMAGE_LOCKS["logstash"],
         "GRAYLOG_IMAGE": DOCKER_IMAGE_LOCKS["graylog"],
         "REDIS_IMAGE": DOCKER_IMAGE_LOCKS["redis"],
         "PROMETHEUS_PORT": ports["prometheus"],
@@ -165,9 +228,16 @@ def _docker_env(config: dict[str, Any]) -> str:
         "GRAYLOG_SYSLOG_UDP_PORT": ports["graylogSyslogUdp"],
         "OPENSEARCH_PORT": ports["opensearch"],
         "OPENSEARCH_TRANSPORT_PORT": ports["opensearchTransport"],
+        "ELASTICSEARCH_PORT": ports["elasticsearch"],
+        "ELASTICSEARCH_TRANSPORT_PORT": ports["elasticsearchTransport"],
+        "KIBANA_PORT": ports["kibana"],
+        "LOGSTASH_BEATS_PORT": ports["logstashBeats"],
+        "LOGSTASH_API_PORT": ports["logstashApi"],
         "MONGODB_PORT": ports["mongodb"],
         "REDIS_PORT": ports["redis"],
         "REDIS_SENTINEL_PORT": ports["redisSentinel"],
+        "KAFKA_PORT": ports["kafka"],
+        "KAFKA_CONTROLLER_PORT": ports["kafkaController"],
         "PROMETHEUS_RETENTION": f"{config['retention']['metricsDays']}d",
         "GRAYLOG_RETENTION_DAYS": config["retention"]["logsDays"],
         "GRAYLOG_ELASTICSEARCH_REPLICAS": (1 if config["deployment"]["mode"] == "cluster" else 0),
@@ -335,12 +405,33 @@ def _docker_standalone_configs(config: dict[str, Any]) -> dict[str, str]:
             }
         ]
     }
+    logstash = f"""input {{
+  beats {{
+    port => {ports['logstashBeats']}
+    host => \"0.0.0.0\"
+  }}
+}}
+
+filter {{
+  mutate {{ add_field => {{ \"[observeweaver][managed]\" => \"true\" }} }}
+}}
+
+output {{
+  elasticsearch {{
+    hosts => [\"http://elasticsearch:{ports['elasticsearch']}\"]
+    user => \"logstash_internal\"
+    password => \"${{LOGSTASH_WRITER_PASSWORD}}\"
+    index => \"observeweaver-logs-%{{+YYYY.MM.dd}}\"
+  }}
+}}
+"""
     return {
         "prometheus.yml": yaml.safe_dump(prometheus, sort_keys=False),
         "prometheus-rules.yml": yaml.safe_dump(rules, sort_keys=False),
         "alertmanager.yml": yaml.safe_dump(alertmanager, sort_keys=False),
         "otel-collector.yml": yaml.safe_dump(otel, sort_keys=False),
         "grafana-datasources.yml": yaml.safe_dump(datasource, sort_keys=False),
+        "logstash.conf": logstash,
     }
 
 
@@ -364,7 +455,11 @@ def _inventory(config: dict[str, Any]) -> str:
         "opentelemetry": "telemetry",
         "graylog": "logs",
         "opensearch": "data",
+        "elasticsearch": "data",
+        "kibana": "ingress",
+        "logstash": "logs",
         "redis": "data",
+        "kafka": "data",
     }
     for component_name, role in component_roles.items():
         eligible = groups.get(role, [])
@@ -406,6 +501,7 @@ def _group_vars(config: dict[str, Any]) -> str:
             "retention": config["retention"],
             "components": config["components"],
             "dependencies": config["dependencies"],
+            "kafka_cluster_id": _kafka_cluster_id(config),
             "secret_file": config["security"]["secretFile"],
         }
     }
@@ -419,7 +515,7 @@ def _public_tls_dns_names(config: dict[str, Any]) -> list[str]:
     domain = config["network"]["domain"]
     names = [
         f"{component}.{domain}"
-        for component in ("grafana", "graylog", "zabbix")
+        for component in ("grafana", "graylog", "zabbix", "kibana")
         if _component(config, component)["enabled"]
     ]
     names.extend(config["tls"].get("additionalDnsNames", []))
@@ -643,6 +739,771 @@ exec redis-server /tmp/sentinel.conf --sentinel
                 },
             },
         )
+    return {"apiVersion": "v1", "kind": "List", "items": items}
+
+
+def _elastic_kubernetes_manifest(config: dict[str, Any]) -> dict[str, Any]:
+    """Render locked-image Elasticsearch, Kibana, and Logstash resources.
+
+    The resources deliberately use the upstream container images directly rather
+    than an unpinned third-party chart. Elasticsearch owns durable quorum data,
+    Kibana remains stateless, and Logstash gets a per-replica durable data volume. Credentials
+    are always read from the generated Kubernetes secret.
+    """
+    if not _component(config, "elasticsearch")["enabled"]:
+        return {"apiVersion": "v1", "kind": "List", "items": []}
+
+    ports = config["network"]["ports"]
+    storage = config["storage"]
+    sizes = storage["sizes"]
+    namespace = config["deployment"]["namespace"]
+    secret_name = config["security"].get("kubernetesSecretName", "observeweaver-secrets")
+    domain = config["network"]["domain"]
+    ingress_enabled = config["network"]["ingress"]["enabled"]
+    ingress_class = config["network"]["ingress"].get("className", "")
+    tls_enabled = ingress_enabled and config["tls"]["mode"] != "disabled"
+    tls_secret_name = config["tls"]["secretName"]
+    cluster_mode = config["deployment"]["mode"] == "cluster"
+    es_name = "observeweaver-elasticsearch"
+    es_headless = f"{es_name}-headless"
+    elastic_tls_secret_name = f"{es_name}-transport-tls"
+    es_replicas = _replicas(config, "elasticsearch")
+    es_hosts = (
+        f"{es_headless}.{namespace}.svc.cluster.local:"
+        f"{ports['elasticsearchTransport']}"
+    )
+    es_config_lines = [
+        "cluster.name: observeweaver-elastic",
+        "node.name: ${HOSTNAME}",
+        "network.host: 0.0.0.0",
+        f"http.port: {ports['elasticsearch']}",
+        f"transport.port: {ports['elasticsearchTransport']}",
+        "xpack.security.enabled: true",
+        "xpack.security.http.ssl.enabled: true",
+        "xpack.security.http.ssl.certificate: /usr/share/elasticsearch/config/certs/tls.crt",
+        "xpack.security.http.ssl.key: /usr/share/elasticsearch/config/certs/tls.key",
+        "xpack.security.http.ssl.certificate_authorities: "
+        "[/usr/share/elasticsearch/config/certs/ca.crt]",
+        "xpack.security.transport.ssl.enabled: true",
+        "xpack.security.transport.ssl.verification_mode: certificate",
+        "xpack.security.transport.ssl.certificate: /usr/share/elasticsearch/config/certs/tls.crt",
+        "xpack.security.transport.ssl.key: /usr/share/elasticsearch/config/certs/tls.key",
+        "xpack.security.transport.ssl.certificate_authorities: "
+        "[/usr/share/elasticsearch/config/certs/ca.crt]",
+        "bootstrap.memory_lock: true",
+    ]
+    if cluster_mode:
+        es_config_lines.extend(
+            [
+                f"discovery.seed_hosts: [{es_hosts}]",
+                "cluster.initial_master_nodes: ["
+                + ", ".join(f"{es_name}-{index}" for index in range(es_replicas))
+                + "]",
+                "node.roles: [master, data, ingest, remote_cluster_client]",
+            ]
+        )
+    else:
+        es_config_lines.append("discovery.type: single-node")
+
+    items: list[dict[str, Any]] = [
+        {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {"name": f"{es_name}-config", "namespace": namespace},
+            "data": {"elasticsearch.yml": "\n".join(es_config_lines) + "\n"},
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {"name": es_headless, "namespace": namespace},
+            "spec": {
+                "clusterIP": "None",
+                "publishNotReadyAddresses": True,
+                "selector": {"app.kubernetes.io/name": es_name},
+                "ports": [
+                    {"name": "http", "port": ports["elasticsearch"], "targetPort": "http"},
+                    {
+                        "name": "transport",
+                        "port": ports["elasticsearchTransport"],
+                        "targetPort": "transport",
+                    },
+                ],
+            },
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {"name": es_name, "namespace": namespace},
+            "spec": {
+                "selector": {"app.kubernetes.io/name": es_name},
+                "ports": [
+                    {"name": "http", "port": ports["elasticsearch"], "targetPort": "http"}
+                ],
+            },
+        },
+        {
+            "apiVersion": "apps/v1",
+            "kind": "StatefulSet",
+            "metadata": {"name": es_name, "namespace": namespace},
+            "spec": {
+                "serviceName": es_headless,
+                "replicas": es_replicas,
+                "podManagementPolicy": "Parallel",
+                "selector": {"matchLabels": {"app.kubernetes.io/name": es_name}},
+                "template": {
+                    "metadata": {"labels": {"app.kubernetes.io/name": es_name}},
+                    "spec": {
+                        "terminationGracePeriodSeconds": 120,
+                        "securityContext": {"fsGroup": 1000},
+                        "containers": [
+                            {
+                                "name": "elasticsearch",
+                                "image": DOCKER_IMAGE_LOCKS["elasticsearch"],
+                                "imagePullPolicy": "IfNotPresent",
+                                "ports": [
+                                    {"name": "http", "containerPort": ports["elasticsearch"]},
+                                    {
+                                        "name": "transport",
+                                        "containerPort": ports["elasticsearchTransport"],
+                                    },
+                                ],
+                                "env": [
+                                    {
+                                        "name": "ELASTIC_PASSWORD",
+                                        "valueFrom": {
+                                            "secretKeyRef": {
+                                                "name": secret_name,
+                                                "key": "ELASTICSEARCH_PASSWORD",
+                                            }
+                                        },
+                                    },
+                                    {"name": "ES_JAVA_OPTS", "value": "-Xms2g -Xmx2g"},
+                                ],
+                                "volumeMounts": [
+                                    {
+                                        "name": "config",
+                                        "mountPath": (
+                                            "/usr/share/elasticsearch/config/"
+                                            "elasticsearch.yml"
+                                        ),
+                                        "subPath": "elasticsearch.yml",
+                                    },
+                                    {"name": "data", "mountPath": "/usr/share/elasticsearch/data"},
+                                    {
+                                        "name": "certs",
+                                        "mountPath": "/usr/share/elasticsearch/config/certs",
+                                        "readOnly": True,
+                                    },
+                                ],
+                                "readinessProbe": {
+                                    "tcpSocket": {"port": "http"},
+                                    "periodSeconds": 10,
+                                    "failureThreshold": 12,
+                                },
+                                "startupProbe": {
+                                    "tcpSocket": {"port": "http"},
+                                    "periodSeconds": 10,
+                                    "failureThreshold": 60,
+                                },
+                                "resources": {
+                                    "requests": {"cpu": "500m", "memory": "2Gi"},
+                                    "limits": {"memory": "4Gi"},
+                                },
+                            }
+                        ],
+                        "volumes": [
+                            {
+                                "name": "config",
+                                "configMap": {"name": f"{es_name}-config"},
+                            },
+                            {
+                                "name": "certs",
+                                "secret": {"secretName": elastic_tls_secret_name},
+                            },
+                        ],
+                    },
+                },
+                "volumeClaimTemplates": [
+                    {
+                        "metadata": {"name": "data"},
+                        "spec": {
+                            "accessModes": ["ReadWriteOnce"],
+                            "storageClassName": storage.get("className"),
+                            "resources": {"requests": {"storage": sizes["elasticsearch"]}},
+                        },
+                    }
+                ],
+            },
+        },
+    ]
+
+    if _component(config, "kibana")["enabled"] or _component(config, "logstash")["enabled"]:
+        elastic_url = f"https://{es_name}:{ports['elasticsearch']}"
+        elastic_bootstrap_script = "\n".join(
+            [
+                "set -eu",
+                f'es_url="{elastic_url}"',
+                "until curl --fail --silent --show-error "
+                "--cacert /usr/share/elasticsearch/config/certs/ca.crt "
+                '--user "elastic:$ELASTICSEARCH_PASSWORD" '
+                '"$es_url/_cluster/health?wait_for_status=yellow" >/dev/null; do',
+                "  sleep 5",
+                "done",
+                'if [ "$KIBANA_ENABLED" = "true" ]; then',
+                "  curl --fail --silent --show-error "
+                "--cacert /usr/share/elasticsearch/config/certs/ca.crt "
+                '--user "elastic:$ELASTICSEARCH_PASSWORD" '
+                "--header 'Content-Type: application/json' --request POST "
+                '"$es_url/_security/user/kibana_system/_password" '
+                '--data "{\\"password\\":\\"$KIBANA_SYSTEM_PASSWORD\\"}" >/dev/null',
+                "fi",
+                'if [ "$LOGSTASH_ENABLED" = "true" ]; then',
+                "  curl --fail --silent --show-error "
+                "--cacert /usr/share/elasticsearch/config/certs/ca.crt "
+                '--user "elastic:$ELASTICSEARCH_PASSWORD" '
+                "--header 'Content-Type: application/json' --request PUT "
+                '"$es_url/_security/role/logstash_writer" '
+                "--data "
+                "'{\"cluster\":[\"manage_index_templates\",\"monitor\",\"manage_ilm\"],"
+                "\"indices\":[{\"names\":[\"observeweaver-logs-*\"],"
+                "\"privileges\":[\"write\",\"create\",\"delete\",\"create_index\",\"manage\","
+                "\"manage_ilm\"]}]}' >/dev/null",
+                "  curl --fail --silent --show-error "
+                "--cacert /usr/share/elasticsearch/config/certs/ca.crt "
+                '--user "elastic:$ELASTICSEARCH_PASSWORD" '
+                "--header 'Content-Type: application/json' --request PUT "
+                '"$es_url/_security/user/logstash_internal" '
+                '--data "{\\"password\\":\\"$LOGSTASH_WRITER_PASSWORD\\",'
+                '\\"roles\\":[\\"logstash_writer\\"],'
+                '\\"full_name\\":\\"ObserveWeaver Logstash writer\\"}" >/dev/null',
+                "fi",
+            ]
+        )
+        items.append(
+            {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "metadata": {
+                    "name": "observeweaver-elastic-bootstrap",
+                    "namespace": namespace,
+                },
+                "spec": {
+                    "backoffLimit": 6,
+                    "ttlSecondsAfterFinished": 86400,
+                    "template": {
+                        "metadata": {
+                            "labels": {
+                                "app.kubernetes.io/name": "observeweaver-elastic-bootstrap"
+                            }
+                        },
+                        "spec": {
+                            "restartPolicy": "OnFailure",
+                            "containers": [
+                                {
+                                    "name": "bootstrap",
+                                    "image": DOCKER_IMAGE_LOCKS["elasticsearch"],
+                                    "imagePullPolicy": "IfNotPresent",
+                                    "command": ["bash", "-c", elastic_bootstrap_script],
+                                    "env": [
+                                        {
+                                            "name": "ELASTICSEARCH_PASSWORD",
+                                            "valueFrom": {
+                                                "secretKeyRef": {
+                                                    "name": secret_name,
+                                                    "key": "ELASTICSEARCH_PASSWORD",
+                                                }
+                                            },
+                                        },
+                                        {
+                                            "name": "KIBANA_SYSTEM_PASSWORD",
+                                            "valueFrom": {
+                                                "secretKeyRef": {
+                                                    "name": secret_name,
+                                                    "key": "KIBANA_SYSTEM_PASSWORD",
+                                                    "optional": True,
+                                                }
+                                            },
+                                        },
+                                        {
+                                            "name": "LOGSTASH_WRITER_PASSWORD",
+                                            "valueFrom": {
+                                                "secretKeyRef": {
+                                                    "name": secret_name,
+                                                    "key": "LOGSTASH_WRITER_PASSWORD",
+                                                    "optional": True,
+                                                }
+                                            },
+                                        },
+                                        {
+                                            "name": "KIBANA_ENABLED",
+                                            "value": str(
+                                                _component(config, "kibana")["enabled"]
+                                            ).lower(),
+                                        },
+                                        {
+                                            "name": "LOGSTASH_ENABLED",
+                                            "value": str(
+                                                _component(config, "logstash")["enabled"]
+                                            ).lower(),
+                                        },
+                                    ],
+                                    "volumeMounts": [
+                                        {
+                                            "name": "certs",
+                                            "mountPath": (
+                                                "/usr/share/elasticsearch/config/certs"
+                                            ),
+                                            "readOnly": True,
+                                        }
+                                    ],
+                                }
+                            ],
+                            "volumes": [
+                                {
+                                    "name": "certs",
+                                    "secret": {"secretName": elastic_tls_secret_name},
+                                }
+                            ],
+                        },
+                    },
+                },
+            }
+        )
+
+    if _component(config, "kibana")["enabled"]:
+        kibana_name = "observeweaver-kibana"
+        kibana_env: list[dict[str, Any]] = [
+            {"name": "SERVER_NAME", "value": kibana_name},
+            {"name": "SERVER_HOST", "value": ANY_IPV4},
+            {"name": "SERVER_PORT", "value": str(ports["kibana"])},
+            {
+                "name": "SERVER_PUBLICBASEURL",
+                "value": (
+                    f"{'http' if config['tls']['mode'] == 'disabled' else 'https'}://"
+                    f"kibana.{domain}/"
+                ),
+            },
+            {
+                "name": "ELASTICSEARCH_HOSTS",
+                "value": f"[\"https://{es_name}:{ports['elasticsearch']}\"]",
+            },
+            {"name": "ELASTICSEARCH_USERNAME", "value": "kibana_system"},
+            {
+                "name": "ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES",
+                "value": "/usr/share/kibana/config/certs/ca.crt",
+            },
+            {"name": "ELASTICSEARCH_SSL_VERIFICATIONMODE", "value": "certificate"},
+        ]
+        for env_name, secret_key in (
+            ("ELASTICSEARCH_PASSWORD", "KIBANA_SYSTEM_PASSWORD"),
+            ("XPACK_SECURITY_ENCRYPTIONKEY", "KIBANA_SECURITY_ENCRYPTION_KEY"),
+            ("XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY", "KIBANA_ENCRYPTION_KEY"),
+            ("XPACK_REPORTING_ENCRYPTIONKEY", "KIBANA_REPORTING_ENCRYPTION_KEY"),
+        ):
+            kibana_env.append(
+                {
+                    "name": env_name,
+                    "valueFrom": {"secretKeyRef": {"name": secret_name, "key": secret_key}},
+                }
+            )
+        items.extend(
+            [
+                {
+                    "apiVersion": "apps/v1",
+                    "kind": "Deployment",
+                    "metadata": {"name": kibana_name, "namespace": namespace},
+                    "spec": {
+                        "replicas": _replicas(config, "kibana"),
+                        "selector": {"matchLabels": {"app.kubernetes.io/name": kibana_name}},
+                        "template": {
+                            "metadata": {"labels": {"app.kubernetes.io/name": kibana_name}},
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "name": "kibana",
+                                        "image": DOCKER_IMAGE_LOCKS["kibana"],
+                                        "imagePullPolicy": "IfNotPresent",
+                                        "env": kibana_env,
+                                        "ports": [
+                                            {"name": "http", "containerPort": ports["kibana"]}
+                                        ],
+                                        "volumeMounts": [
+                                            {
+                                                "name": "certs",
+                                                "mountPath": "/usr/share/kibana/config/certs",
+                                                "readOnly": True,
+                                            }
+                                        ],
+                                        "readinessProbe": {
+                                            "httpGet": {"path": "/api/status", "port": "http"},
+                                            "periodSeconds": 10,
+                                            "failureThreshold": 18,
+                                        },
+                                    }
+                                ]
+                            },
+                            "volumes": [
+                                {
+                                    "name": "certs",
+                                    "secret": {"secretName": elastic_tls_secret_name},
+                                }
+                            ],
+                        },
+                    },
+                },
+                {
+                    "apiVersion": "v1",
+                    "kind": "Service",
+                    "metadata": {"name": kibana_name, "namespace": namespace},
+                    "spec": {
+                        "selector": {"app.kubernetes.io/name": kibana_name},
+                        "ports": [{"name": "http", "port": ports["kibana"], "targetPort": "http"}],
+                    },
+                },
+            ]
+        )
+        if ingress_enabled:
+            ingress = {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "Ingress",
+                "metadata": {"name": kibana_name, "namespace": namespace},
+                "spec": {
+                    "ingressClassName": ingress_class,
+                    "rules": [
+                        {
+                            "host": f"kibana.{domain}",
+                            "http": {
+                                "paths": [
+                                    {
+                                        "path": "/",
+                                        "pathType": "Prefix",
+                                        "backend": {
+                                            "service": {
+                                                "name": kibana_name,
+                                                "port": {"name": "http"},
+                                            }
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                },
+            }
+            if tls_enabled:
+                ingress["spec"]["tls"] = [
+                    {"secretName": tls_secret_name, "hosts": [f"kibana.{domain}"]}
+                ]
+            items.append(ingress)
+
+    if _component(config, "logstash")["enabled"]:
+        logstash_name = "observeweaver-logstash"
+        pipeline = f"""input {{
+  beats {{ port => {ports['logstashBeats']} host => \"0.0.0.0\" }}
+}}
+output {{
+  elasticsearch {{
+    hosts => [\"https://{es_name}:{ports['elasticsearch']}\"]
+    user => \"logstash_internal\"
+    password => \"${{LOGSTASH_WRITER_PASSWORD}}\"
+    ssl_enabled => true
+    ssl_certificate_authorities => [\"/usr/share/logstash/certs/ca.crt\"]
+    index => \"observeweaver-logs-%{{+YYYY.MM.dd}}\"
+  }}
+}}
+"""
+        items.extend(
+            [
+                {
+                    "apiVersion": "v1",
+                    "kind": "ConfigMap",
+                    "metadata": {"name": f"{logstash_name}-pipeline", "namespace": namespace},
+                    "data": {"logstash.conf": pipeline},
+                },
+                {
+                    "apiVersion": "apps/v1",
+                    "kind": "StatefulSet",
+                    "metadata": {"name": logstash_name, "namespace": namespace},
+                    "spec": {
+                        "serviceName": logstash_name,
+                        "replicas": _replicas(config, "logstash"),
+                        "podManagementPolicy": "Parallel",
+                        "selector": {"matchLabels": {"app.kubernetes.io/name": logstash_name}},
+                        "template": {
+                            "metadata": {"labels": {"app.kubernetes.io/name": logstash_name}},
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "name": "logstash",
+                                        "image": DOCKER_IMAGE_LOCKS["logstash"],
+                                        "imagePullPolicy": "IfNotPresent",
+                                        "env": [
+                                            {
+                                                "name": "LOGSTASH_WRITER_PASSWORD",
+                                                "valueFrom": {
+                                                    "secretKeyRef": {
+                                                        "name": secret_name,
+                                                        "key": "LOGSTASH_WRITER_PASSWORD",
+                                                    }
+                                                },
+                                            },
+                                            {"name": "LS_JAVA_OPTS", "value": "-Xms1g -Xmx1g"},
+                                            {"name": "QUEUE_TYPE", "value": "persisted"},
+                                        ],
+                                        "ports": [
+                                            {
+                                                "name": "beats",
+                                                "containerPort": ports["logstashBeats"],
+                                            },
+                                            {"name": "api", "containerPort": ports["logstashApi"]},
+                                        ],
+                                        "volumeMounts": [
+                                            {
+                                                "name": "pipeline",
+                                                "mountPath": (
+                                                    "/usr/share/logstash/pipeline/"
+                                                    "logstash.conf"
+                                                ),
+                                                "subPath": "logstash.conf",
+                                            },
+                                            {
+                                                "name": "certs",
+                                                "mountPath": "/usr/share/logstash/certs",
+                                                "readOnly": True,
+                                            },
+                                            {
+                                                "name": "data",
+                                                "mountPath": "/usr/share/logstash/data",
+                                            },
+                                        ],
+                                        "readinessProbe": {
+                                            "httpGet": {"path": "/", "port": "api"},
+                                            "periodSeconds": 10,
+                                            "failureThreshold": 18,
+                                        },
+                                    }
+                                ],
+                                "volumes": [
+                                    {
+                                        "name": "pipeline",
+                                        "configMap": {"name": f"{logstash_name}-pipeline"},
+                                    },
+                                    {
+                                        "name": "certs",
+                                        "secret": {"secretName": elastic_tls_secret_name},
+                                    },
+                                ],
+                            },
+                        },
+                        "volumeClaimTemplates": [
+                            {
+                                "metadata": {"name": "data"},
+                                "spec": {
+                                    "accessModes": ["ReadWriteOnce"],
+                                    "storageClassName": storage.get("className"),
+                                    "resources": {
+                                        "requests": {"storage": sizes["logstash"]}
+                                    },
+                                },
+                            }
+                        ],
+                    },
+                },
+                {
+                    "apiVersion": "v1",
+                    "kind": "Service",
+                    "metadata": {"name": logstash_name, "namespace": namespace},
+                    "spec": {
+                        "selector": {"app.kubernetes.io/name": logstash_name},
+                        "ports": [
+                            {
+                                "name": "beats",
+                                "port": ports["logstashBeats"],
+                                "targetPort": "beats",
+                            },
+                            {"name": "api", "port": ports["logstashApi"], "targetPort": "api"},
+                        ],
+                    },
+                },
+            ]
+        )
+
+    return {"apiVersion": "v1", "kind": "List", "items": items}
+
+
+def _kafka_kubernetes_manifest(config: dict[str, Any]) -> dict[str, Any]:
+    """Render a locked Kafka KRaft StatefulSet with durable storage."""
+    if not _component(config, "kafka")["enabled"]:
+        return {"apiVersion": "v1", "kind": "List", "items": []}
+
+    namespace = config["deployment"]["namespace"]
+    ports = config["network"]["ports"]
+    storage = config["storage"]
+    replicas = _replicas(config, "kafka")
+    kafka_distribution = _kafka_distribution(config)
+    name = "observeweaver-kafka"
+    headless = f"{name}-headless"
+    labels = {"app.kubernetes.io/name": name}
+    controller_voters = ",".join(
+        f"{index + 1}@{name}-{index}.{headless}.{namespace}.svc.cluster.local:"
+        f"{ports['kafkaController']}"
+        for index in range(replicas)
+    )
+    topic_replication = min(replicas, 3)
+    min_isr = max(1, min(topic_replication, 2))
+    startup_command = (
+        "/etc/confluent/docker/run"
+        if kafka_distribution == "confluent"
+        else "/etc/kafka/docker/run"
+    )
+    probe_command = (
+        "kafka-broker-api-versions"
+        if kafka_distribution == "confluent"
+        else "/opt/kafka/bin/kafka-broker-api-versions.sh"
+    )
+    startup = f"""set -eu
+index="${{HOSTNAME##*-}}"
+export KAFKA_NODE_ID="$((index + 1))"
+export KAFKA_ADVERTISED_LISTENERS="INTERNAL://${{HOSTNAME}}.{headless}.{namespace}.svc.cluster.local:{ports['kafka']}"
+exec {startup_command}
+"""
+    container = {
+        "name": "kafka",
+        "image": _kafka_image_lock(config),
+        "imagePullPolicy": "IfNotPresent",
+        "command": ["/bin/bash", "-ec"],
+        "args": [startup],
+        "env": [
+            {"name": "CLUSTER_ID", "value": _kafka_cluster_id(config)},
+            {"name": "KAFKA_PROCESS_ROLES", "value": "broker,controller"},
+            {
+                "name": "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP",
+                "value": "INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT",
+            },
+            {"name": "KAFKA_LISTENERS", "value": f"INTERNAL://:{ports['kafka']},CONTROLLER://:{ports['kafkaController']}"},
+            {"name": "KAFKA_CONTROLLER_QUORUM_VOTERS", "value": controller_voters},
+            {"name": "KAFKA_CONTROLLER_LISTENER_NAMES", "value": "CONTROLLER"},
+            {"name": "KAFKA_INTER_BROKER_LISTENER_NAME", "value": "INTERNAL"},
+            {"name": "KAFKA_LOG_DIRS", "value": "/var/lib/kafka/data"},
+            {"name": "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", "value": str(topic_replication)},
+            {
+                "name": "KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR",
+                "value": str(topic_replication),
+            },
+            {"name": "KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "value": str(min_isr)},
+            {
+                "name": "KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR",
+                "value": str(topic_replication),
+            },
+            {"name": "KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR", "value": str(min_isr)},
+            {"name": "KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS", "value": "0"},
+        ],
+        "ports": [
+            {"name": "broker", "containerPort": ports["kafka"]},
+            {"name": "controller", "containerPort": ports["kafkaController"]},
+        ],
+        "volumeMounts": [{"name": "data", "mountPath": "/var/lib/kafka/data"}],
+        "readinessProbe": {
+            "exec": {
+                "command": [
+                    "/bin/bash",
+                    "-ec",
+                    f"{probe_command} "
+                    f"--bootstrap-server 127.0.0.1:{ports['kafka']} >/dev/null",
+                ]
+            },
+            "initialDelaySeconds": 20,
+            "periodSeconds": 10,
+            "failureThreshold": 12,
+        },
+        "livenessProbe": {
+            "tcpSocket": {"port": "broker"},
+            "initialDelaySeconds": 60,
+            "periodSeconds": 20,
+        },
+        "securityContext": {
+            "allowPrivilegeEscalation": False,
+            "readOnlyRootFilesystem": False,
+            "capabilities": {"drop": ["ALL"]},
+        },
+    }
+    stateful_set = {
+        "apiVersion": "apps/v1",
+        "kind": "StatefulSet",
+        "metadata": {"name": name, "namespace": namespace, "labels": labels},
+        "spec": {
+            "serviceName": headless,
+            "replicas": replicas,
+            "podManagementPolicy": "Parallel",
+            "selector": {"matchLabels": labels},
+            "template": {
+                "metadata": {"labels": labels},
+                "spec": {
+                    "terminationGracePeriodSeconds": 120,
+                    "securityContext": {"fsGroup": 1000, "runAsNonRoot": True},
+                    "containers": [container],
+                },
+            },
+            "volumeClaimTemplates": [
+                {
+                    "metadata": {"name": "data"},
+                    "spec": {
+                        "accessModes": ["ReadWriteOnce"],
+                        "storageClassName": storage.get("className"),
+                        "resources": {"requests": {"storage": storage["sizes"]["kafka"]}},
+                    },
+                }
+            ],
+        },
+    }
+    items: list[dict[str, Any]] = [
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {"name": headless, "namespace": namespace, "labels": labels},
+            "spec": {
+                "clusterIP": "None",
+                "publishNotReadyAddresses": True,
+                "selector": labels,
+                "ports": [
+                    {"name": "broker", "port": ports["kafka"], "targetPort": "broker"},
+                    {
+                        "name": "controller",
+                        "port": ports["kafkaController"],
+                        "targetPort": "controller",
+                    },
+                ],
+            },
+        },
+        {
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": {"name": name, "namespace": namespace, "labels": labels},
+            "spec": {
+                "selector": labels,
+                "ports": [{"name": "broker", "port": ports["kafka"], "targetPort": "broker"}],
+            },
+        },
+        stateful_set,
+        {
+            "apiVersion": "networking.k8s.io/v1",
+            "kind": "NetworkPolicy",
+            "metadata": {"name": f"{name}-private", "namespace": namespace},
+            "spec": {
+                "podSelector": {"matchLabels": labels},
+                "policyTypes": ["Ingress"],
+                "ingress": [
+                    {
+                        "from": [{"podSelector": {}}],
+                        "ports": [
+                            {"protocol": "TCP", "port": ports["kafka"]},
+                            {"protocol": "TCP", "port": ports["kafkaController"]},
+                        ],
+                    }
+                ],
+            },
+        },
+    ]
     return {"apiVersion": "v1", "kind": "List", "items": items}
 
 
@@ -1076,6 +1937,8 @@ def _kubernetes_values(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
         "graylog": graylog,
         "zabbix": zabbix,
         "redis": _redis_kubernetes_manifest(config),
+        "elastic-stack": _elastic_kubernetes_manifest(config),
+        "kafka-stack": _kafka_kubernetes_manifest(config),
         "public-tls": _public_tls_manifest(config),
     }
 
@@ -1094,7 +1957,11 @@ def _docker_cluster_node_files(config: dict[str, Any], node: dict[str, Any]) -> 
         "zabbix": metrics_nodes,
         "graylog": log_nodes,
         "opensearch": data_nodes,
+        "elasticsearch": data_nodes,
+        "kibana": [item for item in config["nodes"] if "ingress" in item["roles"]],
+        "logstash": log_nodes,
         "redis": data_nodes,
+        "kafka": data_nodes,
     }
     component_nodes = {
         name: nodes[: _replicas(config, name)] if _component(config, name)["enabled"] else []
@@ -1132,8 +1999,18 @@ def _docker_cluster_node_files(config: dict[str, Any], node: dict[str, Any]) -> 
         "GRAYLOG_ENABLED": str(_component(config, "graylog")["enabled"]).lower(),
         "OPENSEARCH_VERSION": _component(config, "opensearch")["version"],
         "OPENSEARCH_ENABLED": str(_component(config, "opensearch")["enabled"]).lower(),
+        "ELASTICSEARCH_VERSION": _component(config, "elasticsearch")["version"],
+        "ELASTICSEARCH_ENABLED": str(_component(config, "elasticsearch")["enabled"]).lower(),
+        "ELASTICSEARCH_SECURITY_ENABLED": "false",
+        "KIBANA_VERSION": _component(config, "kibana")["version"],
+        "KIBANA_ENABLED": str(_component(config, "kibana")["enabled"]).lower(),
+        "LOGSTASH_VERSION": _component(config, "logstash")["version"],
+        "LOGSTASH_ENABLED": str(_component(config, "logstash")["enabled"]).lower(),
         "REDIS_VERSION": _component(config, "redis")["version"],
         "REDIS_ENABLED": str(_component(config, "redis")["enabled"]).lower(),
+        "KAFKA_DISTRIBUTION": _kafka_distribution(config),
+        "KAFKA_VERSION": _component(config, "kafka")["version"],
+        "KAFKA_ENABLED": str(_component(config, "kafka")["enabled"]).lower(),
         "MONGODB_VERSION": config["dependencies"]["mongodb"]["version"],
         "POSTGRES_VERSION": config["dependencies"]["postgresql"]["version"],
         "PROMETHEUS_IMAGE": DOCKER_IMAGE_LOCKS["prometheus"],
@@ -1145,8 +2022,12 @@ def _docker_cluster_node_files(config: dict[str, Any], node: dict[str, Any]) -> 
         "ZABBIX_WEB_IMAGE": DOCKER_IMAGE_LOCKS["zabbixWeb"],
         "MONGODB_IMAGE": DOCKER_IMAGE_LOCKS["mongodb"],
         "OPENSEARCH_IMAGE": DOCKER_IMAGE_LOCKS["opensearch"],
+        "ELASTICSEARCH_IMAGE": DOCKER_IMAGE_LOCKS["elasticsearch"],
+        "KIBANA_IMAGE": DOCKER_IMAGE_LOCKS["kibana"],
+        "LOGSTASH_IMAGE": DOCKER_IMAGE_LOCKS["logstash"],
         "GRAYLOG_IMAGE": DOCKER_IMAGE_LOCKS["graylog"],
         "REDIS_IMAGE": DOCKER_IMAGE_LOCKS["redis"],
+        "KAFKA_IMAGE": _kafka_image_lock(config),
         "PROMETHEUS_PORT": ports["prometheus"],
         "ALERTMANAGER_PORT": ports["alertmanager"],
         "ALERTMANAGER_CLUSTER_PORT": ports["alertmanagerCluster"],
@@ -1167,9 +2048,33 @@ def _docker_cluster_node_files(config: dict[str, Any], node: dict[str, Any]) -> 
         "GRAYLOG_SYSLOG_UDP_PORT": ports["graylogSyslogUdp"],
         "OPENSEARCH_PORT": ports["opensearch"],
         "OPENSEARCH_TRANSPORT_PORT": ports["opensearchTransport"],
+        "ELASTICSEARCH_PORT": ports["elasticsearch"],
+        "ELASTICSEARCH_TRANSPORT_PORT": ports["elasticsearchTransport"],
+        "KIBANA_PORT": ports["kibana"],
+        "LOGSTASH_BEATS_PORT": ports["logstashBeats"],
+        "LOGSTASH_API_PORT": ports["logstashApi"],
         "MONGODB_PORT": ports["mongodb"],
         "REDIS_PORT": ports["redis"],
         "REDIS_SENTINEL_PORT": ports["redisSentinel"],
+        "KAFKA_PORT": ports["kafka"],
+        "KAFKA_CONTROLLER_PORT": ports["kafkaController"],
+        "KAFKA_NODE_ID": (
+            component_nodes["kafka"].index(node) + 1
+            if node in component_nodes["kafka"]
+            else ""
+        ),
+        "KAFKA_CLUSTER_ID": _kafka_cluster_id(config),
+        "KAFKA_CONTROLLER_QUORUM_VOTERS": ",".join(
+            f"{index + 1}@{item['name']}:{ports['kafkaController']}"
+            for index, item in enumerate(component_nodes["kafka"])
+        ),
+        "KAFKA_ADVERTISED_ADDRESS": node["address"],
+        "KAFKA_REPLICATION_FACTOR": min(len(component_nodes["kafka"]), 3) or 1,
+        "KAFKA_MIN_ISR": (
+            max(1, min(len(component_nodes["kafka"]), 2))
+            if component_nodes["kafka"]
+            else 1
+        ),
         "REDIS_PRIMARY_HOST": (
             component_nodes["redis"][0]["name"] if component_nodes["redis"] else ""
         ),
@@ -1188,6 +2093,19 @@ def _docker_cluster_node_files(config: dict[str, Any], node: dict[str, Any]) -> 
         "OPENSEARCH_INITIAL_CLUSTER_MANAGER_NODES": ",".join(
             item["name"] for item in component_nodes["opensearch"]
         ),
+        "ELASTICSEARCH_SEED_HOSTS": ",".join(
+            _host_port(item["name"], ports["elasticsearchTransport"])
+            for item in component_nodes["elasticsearch"]
+        ),
+        "ELASTICSEARCH_INITIAL_MASTER_NODES": ",".join(
+            item["name"] for item in component_nodes["elasticsearch"]
+        ),
+        "ELASTICSEARCH_HOSTS": "["
+        + ",".join(
+            f'"http://{item["name"]}:{ports["elasticsearch"]}"'
+            for item in component_nodes["elasticsearch"]
+        )
+        + "]",
         "ALERTMANAGER_PEERS": ",".join(
             f"{item['name']}:{ports['alertmanagerCluster']}"
             for item in component_nodes["alertmanager"]
@@ -1387,10 +2305,14 @@ def _docker_cluster_node_files(config: dict[str, Any], node: dict[str, Any]) -> 
                 "zabbix-server",
                 "zabbix-web",
                 "mongodb",
-                "opensearch",
+        "opensearch",
+                "elasticsearch",
+                "kibana",
+                "logstash",
                 "graylog",
                 "redis",
                 "redis-sentinel",
+                "kafka",
             )
         }
     }
@@ -1402,6 +2324,25 @@ def _docker_cluster_node_files(config: dict[str, Any], node: dict[str, Any]) -> 
             ),
             "GRAYLOG_ELASTICSEARCH_HOSTS": search_hosts,
         }
+    logstash_hosts = ",".join(
+        f"http://{item['name']}:{ports['elasticsearch']}"
+        for item in component_nodes["elasticsearch"]
+    )
+    logstash_hosts_config = ", ".join(
+        '"' + host + '"' for host in logstash_hosts.split(",") if host
+    )
+    logstash = f"""input {{
+  beats {{ port => {ports['logstashBeats']} host => \"0.0.0.0\" }}
+}}
+output {{
+  elasticsearch {{
+    hosts => [{logstash_hosts_config}]
+    user => \"elastic\"
+    password => \"${{ELASTICSEARCH_PASSWORD}}\"
+    index => \"observeweaver-logs-%{{+YYYY.MM.dd}}\"
+  }}
+}}
+"""
     if mongodb_nodes and node["name"] == mongodb_nodes[0]["name"]:
         override["services"]["mongodb"] = {
             "extra_hosts": extra_hosts,
@@ -1417,6 +2358,7 @@ def _docker_cluster_node_files(config: dict[str, Any], node: dict[str, Any]) -> 
         "alertmanager.yml": yaml.safe_dump(alertmanager, sort_keys=False),
         "otel-collector.yml": yaml.safe_dump(otel, sort_keys=False),
         "grafana-datasources.yml": yaml.safe_dump(datasource, sort_keys=False),
+        "logstash.conf": logstash,
         "compose.override.generated.yml": yaml.safe_dump(override, sort_keys=False),
     }
 

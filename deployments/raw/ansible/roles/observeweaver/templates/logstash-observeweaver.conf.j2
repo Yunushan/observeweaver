@@ -1,0 +1,25 @@
+input {
+  beats {
+    host => "0.0.0.0"
+    port => {{ observeweaver.network.ports.logstashBeats }}
+  }
+}
+
+filter {
+  mutate { add_field => { "[observeweaver][managed]" => "true" } }
+}
+
+output {
+  elasticsearch {
+    hosts => [
+{% for host in groups.get('elasticsearch', []) %}
+      "https://{{ hostvars[host].ansible_host }}:{{ observeweaver.network.ports.elasticsearch }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+    ]
+    user => "logstash_internal"
+    password => "{{ observeweaver_logstash_writer_password }}"
+    ssl_enabled => true
+    ssl_certificate_authorities => ["/etc/logstash/observeweaver-root-ca.pem"]
+    index => "observeweaver-logs-%{+YYYY.MM.dd}"
+  }
+}

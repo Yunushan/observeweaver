@@ -179,9 +179,16 @@
             "graylogSyslogUdp",
             "opensearch",
             "opensearchTransport",
+            "elasticsearch",
+            "elasticsearchTransport",
+            "kibana",
+            "logstashBeats",
+            "logstashApi",
             "mongodb",
             "redis",
-            "redisSentinel"
+            "redisSentinel",
+            "kafka",
+            "kafkaController"
           ],
           "additionalProperties": {
             "type": "integer",
@@ -266,10 +273,13 @@
             "grafana",
             "graylogJournal",
             "opensearch",
+            "elasticsearch",
+            "logstash",
             "mongodb",
             "postgresql",
             "zabbixPostgresql",
-            "redis"
+            "redis",
+            "kafka"
           ],
           "additionalProperties": {
             "type": "string",
@@ -321,7 +331,11 @@
         "zabbix",
         "graylog",
         "opensearch",
-        "redis"
+        "elasticsearch",
+        "kibana",
+        "logstash",
+        "redis",
+        "kafka"
       ],
       "additionalProperties": false,
       "properties": {
@@ -346,8 +360,20 @@
         "opensearch": {
           "$ref": "#/$defs/opensearchComponent"
         },
+        "elasticsearch": {
+          "$ref": "#/$defs/elasticsearchComponent"
+        },
+        "kibana": {
+          "$ref": "#/$defs/component"
+        },
+        "logstash": {
+          "$ref": "#/$defs/component"
+        },
         "redis": {
           "$ref": "#/$defs/component"
+        },
+        "kafka": {
+          "$ref": "#/$defs/kafkaComponent"
         }
       }
     },
@@ -426,6 +452,28 @@
         }
       }
     },
+    "kafkaComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "version", "replicas"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "distribution": {
+          "type": "string",
+          "enum": ["apache", "confluent"]
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "opensearchComponent": {
       "type": "object",
       "additionalProperties": false,
@@ -445,6 +493,24 @@
         "javaOpts": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "elasticsearchComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "version", "replicas"],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 1
         }
       }
     },

@@ -24,7 +24,8 @@ has identical CI depth.
 ## Native Windows subset
 
 Prometheus, Alertmanager, Grafana, OTel Collector, and OpenSearch publish
-Windows artifacts. Graylog Server and Redis do not have supported native
+Windows artifacts. Graylog Server, Redis, and the maintained Elastic Stack
+package/TLS role do not have supported native
 ObserveWeaver deployment paths. MongoDB on Windows does not change that
 limitation. The full stack therefore needs Linux.
 
@@ -57,7 +58,18 @@ workloads use Linux images and Linux nodes.
 - Redis 8.8.0 is built from the checksum-verified upstream source for raw Linux
   and uses an immutable official container image for Docker/K3s/RKE2. Redis
   cluster mode requires exactly three Redis members for Sentinel failover.
-- K3s/RKE2 public TLS covers Grafana, Graylog, and Zabbix through either an
+- Elasticsearch, Kibana, and Logstash are pinned together at 9.4.2. Raw Linux
+  installs use the signed Elastic 9.x repositories, generated private CA, and
+  managed Logstash writer; Docker and K3s/RKE2 use locked official images with
+  bootstrap credentials. Kubernetes cluster mode requires an odd Elasticsearch
+  quorum of at least three members.
+- Kafka is supported through the raw systemd, Docker Compose, K3s, and RKE2 paths
+  using KRaft (no ZooKeeper). Apache Kafka 4.3.1 is the default; Confluent
+  Community 8.3.0 (`cp-kafka`) is an interchangeable distribution option.
+  Standalone uses one combined broker/controller; cluster mode requires an odd
+  3+ data-node quorum and persistent storage. Native Windows Kafka is rejected.
+  Commercial `cp-server` features and licensing are outside this profile.
+- K3s/RKE2 public TLS covers Grafana, Graylog, Kibana, and Zabbix through either an
   existing cert-manager `ClusterIssuer` or an installer-imported full-chain
   PEM/CRT plus private key. Wildcards require a DNS-01-capable issuer; literal
   IP SANs require issuer and ingress support and do not replace DNS host routes.

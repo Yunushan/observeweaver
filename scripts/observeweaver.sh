@@ -76,6 +76,7 @@ require_secret_value() {
 
 preflight_secrets() {
   local engine grafana_enabled grafana_replicas mode secret_path zabbix_enabled
+  local elasticsearch_enabled kibana_enabled logstash_enabled
   local zabbix_external_database zabbix_replicas
   secret_path="$(secret_file_path)"
   if [[ ! -f "${secret_path}" ]]; then
@@ -90,6 +91,9 @@ preflight_secrets() {
   zabbix_enabled="$(config_value components.zabbix.enabled)"
   zabbix_replicas="$(config_value components.zabbix.replicas)"
   zabbix_external_database="$(config_value dependencies.zabbixPostgresql.external)"
+  elasticsearch_enabled="$(config_value components.elasticsearch.enabled)"
+  kibana_enabled="$(config_value components.kibana.enabled)"
+  logstash_enabled="$(config_value components.logstash.enabled)"
   if [[ "${grafana_enabled}" == "true" ]] && {
     (( grafana_replicas > 1 )) || [[
       "${engine}" == "docker" &&
@@ -110,6 +114,18 @@ preflight_secrets() {
     require_secret_value ZABBIX_DATABASE_USER "${secret_path}"
     require_secret_value ZABBIX_DATABASE_PASSWORD "${secret_path}"
     require_secret_value ZABBIX_DATABASE_NAME "${secret_path}"
+  fi
+  if [[ "${elasticsearch_enabled}" == "true" || "${kibana_enabled}" == "true" || "${logstash_enabled}" == "true" ]]; then
+    require_secret_value ELASTICSEARCH_PASSWORD "${secret_path}"
+  fi
+  if [[ "${kibana_enabled}" == "true" ]]; then
+    require_secret_value KIBANA_SYSTEM_PASSWORD "${secret_path}"
+    require_secret_value KIBANA_ENCRYPTION_KEY "${secret_path}"
+    require_secret_value KIBANA_REPORTING_ENCRYPTION_KEY "${secret_path}"
+    require_secret_value KIBANA_SECURITY_ENCRYPTION_KEY "${secret_path}"
+  fi
+  if [[ "${logstash_enabled}" == "true" ]]; then
+    require_secret_value LOGSTASH_WRITER_PASSWORD "${secret_path}"
   fi
 }
 

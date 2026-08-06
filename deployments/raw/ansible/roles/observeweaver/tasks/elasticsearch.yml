@@ -1,0 +1,354 @@
+---
+- name: Install Elastic repository key on Debian family
+  ansible.builtin.get_url:
+    url: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    dest: /usr/share/keyrings/elastic.gpg
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_os_family == 'Debian'
+
+- name: Configure Elastic repository on Debian family
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/keyrings/elastic.gpg]
+      https://artifacts.elastic.co/packages/9.x/apt stable main
+    filename: elastic-9.x
+    state: present
+    update_cache: true
+  when: ansible_os_family == 'Debian'
+
+- name: Configure Elastic repository on Red Hat family
+  ansible.builtin.yum_repository:
+    name: elastic-9.x
+    description: Elastic 9.x packages
+    baseurl: https://artifacts.elastic.co/packages/9.x/yum
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+  when: ansible_os_family == 'RedHat'
+
+- name: Install pinned Elasticsearch package
+  ansible.builtin.package:
+    name: >-
+      {{ 'elasticsearch=' ~ observeweaver.components.elasticsearch.version
+      if ansible_os_family == 'Debian'
+      else 'elasticsearch-' ~ observeweaver.components.elasticsearch.version }}
+    state: present
+
+- name: Create Elasticsearch data directory
+  ansible.builtin.file:
+    path: "{{ observeweaver_data_root }}/elasticsearch"
+    state: directory
+    owner: elasticsearch
+    group: elasticsearch
+    mode: "0750"
+
+- name: Create Elasticsearch certificate workspace on CA host
+  ansible.builtin.file:
+    path: /etc/elasticsearch/observeweaver-ca
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  delegate_to: "{{ groups['elasticsearch'] | first }}"
+
+- name: Generate Elasticsearch private CA key
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - genpkey
+      - -algorithm
+      - RSA
+      - -pkeyopt
+      - rsa_keygen_bits:4096
+      - -out
+      - /etc/elasticsearch/observeweaver-ca/root-ca-key.pem
+    creates: /etc/elasticsearch/observeweaver-ca/root-ca-key.pem
+  delegate_to: "{{ groups['elasticsearch'] | first }}"
+  no_log: true
+
+- name: Generate Elasticsearch private CA certificate
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -new
+      - -x509
+      - -sha256
+      - -key
+      - /etc/elasticsearch/observeweaver-ca/root-ca-key.pem
+      - -subj
+      - /O=ObserveWeaver/OU=Security/CN=ObserveWeaver Elastic Root CA
+      - -days
+      - "3650"
+      - -addext
+      - "basicConstraints=critical,CA:TRUE,pathlen:0"
+      - -addext
+      - "keyUsage=critical,keyCertSign,cRLSign"
+      - -out
+      - /etc/elasticsearch/observeweaver-ca/root-ca.pem
+    creates: /etc/elasticsearch/observeweaver-ca/root-ca.pem
+  delegate_to: "{{ groups['elasticsearch'] | first }}"
+
+- name: Generate Elasticsearch node private key
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - genpkey
+      - -algorithm
+      - RSA
+      - -pkeyopt
+      - rsa_keygen_bits:2048
+      - -out
+      - /etc/elasticsearch/observeweaver-node-key.pem
+    creates: /etc/elasticsearch/observeweaver-node-key.pem
+  no_log: true
+
+- name: Write Elasticsearch node certificate request
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - req
+      - -new
+      - -sha256
+      - -key
+      - /etc/elasticsearch/observeweaver-node-key.pem
+      - -subj
+      - "/O=ObserveWeaver/OU=Nodes/CN={{ inventory_hostname }}"
+      - -out
+      - /etc/elasticsearch/observeweaver-node.csr
+  changed_when: true
+  no_log: true
+
+- name: Write Elasticsearch node certificate extensions
+  ansible.builtin.copy:
+    dest: /etc/elasticsearch/observeweaver-node.ext
+    owner: root
+    group: elasticsearch
+    mode: "0640"
+    content: |
+      basicConstraints=critical,CA:FALSE
+      keyUsage=critical,digitalSignature,keyEncipherment
+      extendedKeyUsage=serverAuth,clientAuth
+      subjectAltName=DNS:{{ inventory_hostname }},DNS:localhost,IP:{{ hostvars[inventory_hostname].ansible_host }},IP:127.0.0.1
+
+- name: Read Elasticsearch node certificate request
+  ansible.builtin.slurp:
+    src: /etc/elasticsearch/observeweaver-node.csr
+  register: observeweaver_elasticsearch_node_csr
+
+- name: Stage Elasticsearch node certificate request on CA host
+  ansible.builtin.copy:
+    dest: "/etc/elasticsearch/observeweaver-ca/{{ inventory_hostname }}.csr"
+    owner: root
+    group: root
+    mode: "0600"
+    content: "{{ observeweaver_elasticsearch_node_csr.content | b64decode }}"
+  delegate_to: "{{ groups['elasticsearch'] | first }}"
+
+- name: Stage Elasticsearch node certificate extensions on CA host
+  ansible.builtin.copy:
+    dest: "/etc/elasticsearch/observeweaver-ca/{{ inventory_hostname }}.ext"
+    owner: root
+    group: root
+    mode: "0600"
+    content: |
+      basicConstraints=critical,CA:FALSE
+      keyUsage=critical,digitalSignature,keyEncipherment
+      extendedKeyUsage=serverAuth,clientAuth
+      subjectAltName=DNS:{{ inventory_hostname }},DNS:localhost,IP:{{ hostvars[inventory_hostname].ansible_host }},IP:127.0.0.1
+  delegate_to: "{{ groups['elasticsearch'] | first }}"
+
+- name: Sign Elasticsearch node certificate on CA host
+  ansible.builtin.command:
+    argv:
+      - openssl
+      - x509
+      - -req
+      - -sha256
+      - -in
+      - "/etc/elasticsearch/observeweaver-ca/{{ inventory_hostname }}.csr"
+      - -CA
+      - /etc/elasticsearch/observeweaver-ca/root-ca.pem
+      - -CAkey
+      - /etc/elasticsearch/observeweaver-ca/root-ca-key.pem
+      - -CAserial
+      - /etc/elasticsearch/observeweaver-ca/root-ca.srl
+      - -CAcreateserial
+      - -days
+      - "825"
+      - -extfile
+      - "/etc/elasticsearch/observeweaver-ca/{{ inventory_hostname }}.ext"
+      - -out
+      - "/etc/elasticsearch/observeweaver-ca/{{ inventory_hostname }}.pem"
+  delegate_to: "{{ groups['elasticsearch'] | first }}"
+  changed_when: true
+  no_log: true
+
+- name: Read Elasticsearch CA certificate from CA host
+  ansible.builtin.slurp:
+    src: /etc/elasticsearch/observeweaver-ca/root-ca.pem
+  register: observeweaver_elasticsearch_ca
+  delegate_to: "{{ groups['elasticsearch'] | first }}"
+
+- name: Read signed Elasticsearch node certificate from CA host
+  ansible.builtin.slurp:
+    src: "/etc/elasticsearch/observeweaver-ca/{{ inventory_hostname }}.pem"
+  register: observeweaver_elasticsearch_node_certificate
+  delegate_to: "{{ groups['elasticsearch'] | first }}"
+
+- name: Install Elasticsearch CA certificate
+  ansible.builtin.copy:
+    dest: /etc/elasticsearch/observeweaver-root-ca.pem
+    owner: root
+    group: elasticsearch
+    mode: "0644"
+    content: "{{ observeweaver_elasticsearch_ca.content | b64decode }}"
+  notify: Restart elasticsearch
+
+- name: Install Elasticsearch node private key
+  ansible.builtin.file:
+    path: /etc/elasticsearch/observeweaver-node-key.pem
+    owner: root
+    group: elasticsearch
+    mode: "0640"
+
+- name: Install signed Elasticsearch node certificate
+  ansible.builtin.copy:
+    dest: /etc/elasticsearch/observeweaver-node.pem
+    owner: root
+    group: elasticsearch
+    mode: "0644"
+    content: "{{ observeweaver_elasticsearch_node_certificate.content | b64decode }}"
+  notify: Restart elasticsearch
+
+- name: Configure Elasticsearch
+  ansible.builtin.template:
+    src: elasticsearch.yml.j2
+    dest: /etc/elasticsearch/elasticsearch.yml
+    owner: root
+    group: elasticsearch
+    mode: "0640"
+  notify: Restart elasticsearch
+
+- name: Configure Elasticsearch heap
+  ansible.builtin.copy:
+    dest: /etc/elasticsearch/jvm.options.d/observeweaver.options
+    owner: root
+    group: elasticsearch
+    mode: "0640"
+    content: |
+      -Xms2g
+      -Xmx2g
+  notify: Restart elasticsearch
+
+- name: Create Elasticsearch systemd override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/elasticsearch.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Allow Elasticsearch to lock its heap
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/elasticsearch.service.d/observeweaver.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Service]
+      LimitMEMLOCK=infinity
+  notify: Restart elasticsearch
+
+- name: Enable Elasticsearch
+  ansible.builtin.systemd_service:
+    name: elasticsearch
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for Elasticsearch HTTPS API
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[inventory_hostname].ansible_host }}"
+    port: "{{ observeweaver.network.ports.elasticsearch }}"
+    timeout: 180
+
+- name: Set managed Elasticsearch built-in passwords
+  ansible.builtin.shell: |
+    set -o pipefail
+    printf '%s\n%s\n' '{{ observeweaver_elasticsearch_password }}' '{{ observeweaver_elasticsearch_password }}' |
+      /usr/share/elasticsearch/bin/elasticsearch-reset-password -u elastic -i
+  environment:
+    ES_PATH_CONF: /etc/elasticsearch
+  changed_when: true
+  no_log: true
+  when:
+    - inventory_hostname == (groups['elasticsearch'] | first)
+
+- name: Set managed Kibana system password
+  ansible.builtin.shell: |
+    set -o pipefail
+    printf '%s\n%s\n' '{{ observeweaver_kibana_system_password }}' '{{ observeweaver_kibana_system_password }}' |
+      /usr/share/elasticsearch/bin/elasticsearch-reset-password -u kibana_system -i
+  environment:
+    ES_PATH_CONF: /etc/elasticsearch
+  changed_when: true
+  no_log: true
+  when:
+    - observeweaver.components.kibana.enabled | bool
+    - inventory_hostname == (groups['elasticsearch'] | first)
+
+- name: Create managed Logstash writer role
+  ansible.builtin.uri:
+    url: >-
+      https://127.0.0.1:{{ observeweaver.network.ports.elasticsearch }}/_security/role/logstash_writer
+    method: PUT
+    user: elastic
+    password: "{{ observeweaver_elasticsearch_password }}"
+    force_basic_auth: true
+    ca_path: /etc/elasticsearch/observeweaver-root-ca.pem
+    validate_certs: true
+    body_format: json
+    body:
+      cluster:
+        - manage_index_templates
+        - monitor
+        - manage_ilm
+      indices:
+        - names: ["observeweaver-logs-*"]
+          privileges:
+            - write
+            - create
+            - delete
+            - create_index
+            - manage
+            - manage_ilm
+    status_code: [200, 201]
+  when:
+    - observeweaver.components.logstash.enabled | bool
+    - inventory_hostname == (groups['elasticsearch'] | first)
+  no_log: true
+
+- name: Create managed Logstash writer user
+  ansible.builtin.uri:
+    url: >-
+      https://127.0.0.1:{{ observeweaver.network.ports.elasticsearch }}/_security/user/logstash_internal
+    method: PUT
+    user: elastic
+    password: "{{ observeweaver_elasticsearch_password }}"
+    force_basic_auth: true
+    ca_path: /etc/elasticsearch/observeweaver-root-ca.pem
+    validate_certs: true
+    body_format: json
+    body:
+      password: "{{ observeweaver_logstash_writer_password }}"
+      roles: [logstash_writer]
+      full_name: ObserveWeaver Logstash writer
+      enabled: true
+    status_code: [200, 201]
+  when:
+    - observeweaver.components.logstash.enabled | bool
+    - inventory_hostname == (groups['elasticsearch'] | first)
+  no_log: true

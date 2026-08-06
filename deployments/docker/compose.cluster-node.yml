@@ -209,6 +209,49 @@ services:
     logging: *logging
     profiles: [redis]
 
+  kafka:
+    image: ${KAFKA_IMAGE:?required}
+    hostname: ${NODE_NAME:?required}
+    <<: *restart
+    network_mode: host
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?required}
+      KAFKA_NODE_ID: ${KAFKA_NODE_ID:?required}
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:${KAFKA_PORT:-9092},CONTROLLER://0.0.0.0:${KAFKA_CONTROLLER_PORT:-9095}
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://${NODE_ADDRESS:?required}:${KAFKA_PORT:-9092}
+      KAFKA_CONTROLLER_QUORUM_VOTERS: ${KAFKA_CONTROLLER_QUORUM_VOTERS:?required}
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_REPLICATION_FACTOR:-3}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${KAFKA_REPLICATION_FACTOR:-3}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${KAFKA_MIN_ISR:-2}
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: ${KAFKA_REPLICATION_FACTOR:-3}
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: ${KAFKA_MIN_ISR:-2}
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          if command -v kafka-broker-api-versions >/dev/null 2>&1; then
+          kafka-broker-api-versions --bootstrap-server 127.0.0.1:${KAFKA_PORT:-9092};
+          elif command -v kafka-broker-api-versions.sh >/dev/null 2>&1; then
+          kafka-broker-api-versions.sh --bootstrap-server 127.0.0.1:${KAFKA_PORT:-9092};
+          elif [ -x /opt/kafka/bin/kafka-broker-api-versions.sh ]; then
+          /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server
+          127.0.0.1:${KAFKA_PORT:-9092}; else exit 1; fi >/dev/null 2>&1
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [kafka]
+
   mongodb:
     image: ${MONGODB_IMAGE:?required}
     <<: *restart
@@ -257,6 +300,71 @@ services:
     logging: *logging
     profiles: [opensearch]
 
+  elasticsearch:
+    image: ${ELASTICSEARCH_IMAGE:?required}
+    <<: *restart
+    network_mode: host
+    environment:
+      cluster.name: observeweaver-elastic
+      node.name: ${NODE_NAME:?required}
+      network.host: ${NODE_ADDRESS:?required}
+      http.port: ${ELASTICSEARCH_PORT:-9201}
+      transport.port: ${ELASTICSEARCH_TRANSPORT_PORT:-9301}
+      discovery.seed_hosts: ${ELASTICSEARCH_SEED_HOSTS:?required}
+      cluster.initial_master_nodes: ${ELASTICSEARCH_INITIAL_MASTER_NODES:?required}
+      node.roles: master,data,ingest,remote_cluster_client
+      bootstrap.memory_lock: "true"
+      xpack.security.enabled: ${ELASTICSEARCH_SECURITY_ENABLED:-false}
+      xpack.security.http.ssl.enabled: "false"
+      ELASTIC_PASSWORD: ${ELASTICSEARCH_PASSWORD:?required}
+    ulimits:
+      memlock: {soft: -1, hard: -1}
+      nofile: {soft: 65536, hard: 65536}
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [elasticsearch]
+
+  kibana:
+    image: ${KIBANA_IMAGE:?required}
+    <<: *restart
+    network_mode: host
+    environment:
+      SERVER_NAME: ${NODE_NAME:?required}
+      SERVER_HOST: ${NODE_ADDRESS:?required}
+      SERVER_PORT: ${KIBANA_PORT:-5601}
+      SERVER_PUBLICBASEURL: ${OBSERVEWEAVER_SCHEME:-https}://kibana.${OBSERVEWEAVER_DOMAIN:?required}/
+      ELASTICSEARCH_HOSTS: ${ELASTICSEARCH_HOSTS:?required}
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:?required}
+      XPACK_SECURITY_ENCRYPTIONKEY: ${KIBANA_SECURITY_ENCRYPTION_KEY:?required}
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:?required}
+      XPACK_REPORTING_ENCRYPTIONKEY: ${KIBANA_REPORTING_ENCRYPTION_KEY:?required}
+    volumes:
+      - kibana-data:/usr/share/kibana/data
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [kibana]
+
+  logstash:
+    image: ${LOGSTASH_IMAGE:?required}
+    <<: *restart
+    network_mode: host
+    environment:
+      LS_JAVA_OPTS: ${LOGSTASH_JAVA_OPTS:--Xms1g -Xmx1g}
+      QUEUE_TYPE: persisted
+      ELASTICSEARCH_HOSTS: ${ELASTICSEARCH_HOSTS:?required}
+      ELASTICSEARCH_USERNAME: elastic
+      ELASTICSEARCH_PASSWORD: ${ELASTICSEARCH_PASSWORD:?required}
+      LOGSTASH_WRITER_PASSWORD: ${LOGSTASH_WRITER_PASSWORD:?required}
+    volumes:
+      - "${NODE_CONFIG_DIR:?required}/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro"
+      - logstash-data:/usr/share/logstash/data
+    security_opt: [no-new-privileges:true]
+    logging: *logging
+    profiles: [logstash]
+
   graylog:
     image: ${GRAYLOG_IMAGE:?required}
     <<: *restart
@@ -286,6 +394,10 @@ volumes:
   grafana-data:
   mongodb-data:
   opensearch-data:
+  elasticsearch-data:
+  kibana-data:
+  logstash-data:
   graylog-journal:
   zabbix-postgresql-data:
   redis-data:
+  kafka-data:

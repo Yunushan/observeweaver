@@ -31,6 +31,32 @@ class ConfigTests(unittest.TestCase):
         result = validate_config(self.load_example("cluster.yml"))
         self.assertEqual([], result.errors)
 
+    def test_elastic_stack_requires_one_version_and_quorum(self) -> None:
+        config = load_config(ROOT / "config" / "examples" / "cluster.yml")
+        config["components"]["kibana"]["version"] = "9.4.1"
+        config["components"]["elasticsearch"]["replicas"] = 2
+        result = validate_config(config)
+        self.assertTrue(
+            any("same pinned Elastic Stack version" in error for error in result.errors)
+        )
+        self.assertTrue(
+            any("odd number of at least 3" in error for error in result.errors)
+        )
+
+    def test_kibana_and_logstash_require_elasticsearch(self) -> None:
+        config = self.load_example("standalone.yml")
+        config["components"]["elasticsearch"]["enabled"] = False
+        result = validate_config(config)
+        self.assertTrue(
+            any("must be true when Kibana or Logstash" in error for error in result.errors)
+        )
+
+    def test_native_windows_elastic_stack_is_rejected(self) -> None:
+        config = self.load_example("windows-native.yml")
+        config["components"]["elasticsearch"]["enabled"] = True
+        result = validate_config(config)
+        self.assertTrue(any("Native Windows Elastic Stack" in error for error in result.errors))
+
     def test_windows_native_example_is_valid(self) -> None:
         result = validate_config(self.load_example("windows-native.yml"))
         self.assertEqual([], result.errors)
@@ -86,6 +112,39 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(
             any("Redis has no supported native Windows" in error for error in result.errors)
         )
+
+    def test_kafka_uses_kraft_pin_and_cluster_quorum(self) -> None:
+        config = self.load_example("standalone.yml")
+        config["components"]["kafka"]["version"] = "latest"
+        result = validate_config(config)
+        self.assertTrue(any("components.kafka.version" in error for error in result.errors))
+
+        config = self.load_example("cluster.yml")
+        config["components"]["kafka"]["replicas"] = 2
+        result = validate_config(config)
+        self.assertTrue(any("KRaft controller quorum" in error for error in result.errors))
+
+    def test_kafka_confluent_distribution_uses_its_pin(self) -> None:
+        config = self.load_example("standalone.yml")
+        config["components"]["kafka"]["distribution"] = "confluent"
+        config["components"]["kafka"]["version"] = "8.3.0"
+        result = validate_config(config)
+        self.assertTrue(result.valid, result.errors)
+
+        config["components"]["kafka"]["version"] = "4.3.1"
+        result = validate_config(config)
+        self.assertTrue(any("components.kafka.version" in error for error in result.errors))
+
+        config["components"]["kafka"]["version"] = "8.3.0"
+        config["components"]["kafka"]["distribution"] = "unsupported"
+        result = validate_config(config)
+        self.assertTrue(any("components.kafka.distribution" in error for error in result.errors))
+
+    def test_native_windows_kafka_is_rejected(self) -> None:
+        config = self.load_example("windows-native.yml")
+        config["components"]["kafka"]["enabled"] = True
+        result = validate_config(config)
+        self.assertTrue(any("Native Windows Kafka" in error for error in result.errors))
 
     def test_zabbix_ha_requires_an_external_database(self) -> None:
         config = self.load_example("cluster.yml")
@@ -277,13 +336,14 @@ class RenderTests(unittest.TestCase):
         config = load_config(ROOT / "config" / "examples" / "standalone.yml")
         with tempfile.TemporaryDirectory() as directory:
             created = render(config, directory)
-            self.assertEqual(15, len(created))
+            self.assertEqual(18, len(created))
             combined = "\n".join(path.read_text(encoding="utf-8") for path in created)
             self.assertNotIn("GRAFANA_ADMIN_PASSWORD=", combined)
             self.assertIn("PROMETHEUS_VERSION=3.13.1", combined)
             self.assertIn(
                 "COMPOSE_PROFILES=prometheus,alertmanager,grafana,"
-                "opentelemetry,zabbix,graylog,opensearch,redis,mongodb",
+                "opentelemetry,zabbix,graylog,opensearch,elasticsearch,kibana,"
+                "logstash,redis,kafka,mongodb",
                 combined,
             )
 
@@ -304,11 +364,269 @@ class RenderTests(unittest.TestCase):
             self.assertIn("COMPOSE_PROFILES=", environment)
             self.assertIn("zabbix", environment)
 
+    def test_elastic_stack_renders_locked_services_and_manifest(self) -> None:
+        config = load_config(ROOT / "config" / "examples" / "standalone.yml")
+        with tempfile.TemporaryDirectory() as directory:
+            render(config, directory)
+            docker_root = Path(directory) / "production" / "docker"
+            env = (docker_root / ".env.generated").read_text(encoding="utf-8")
+            pipeline = (docker_root / "configs" / "logstash.conf").read_text(encoding="utf-8")
+            manifest = yaml.safe_load(
+                (
+                    Path(directory)
+                    / "production"
+                    / "kubernetes"
+                    / "elastic-stack.values.generated.yml"
+                ).read_text(encoding="utf-8")
+            )
+        self.assertIn(
+            "ELASTICSEARCH_IMAGE=docker.elastic.co/elasticsearch/elasticsearch@sha256:",
+            env,
+        )
+        self.assertIn("KIBANA_IMAGE=docker.elastic.co/kibana/kibana@sha256:", env)
+        self.assertIn("LOGSTASH_IMAGE=docker.elastic.co/logstash/logstash@sha256:", env)
+        self.assertIn("password => \"${LOGSTASH_WRITER_PASSWORD}\"", pipeline)
+        compose = yaml.safe_load(
+            (ROOT / "deployments" / "docker" / "compose.yml").read_text(encoding="utf-8")
+        )
+        bootstrap_service = compose["services"]["elastic-bootstrap"]
+        self.assertNotIn("KIBANA_PASSWORD", compose["services"]["elasticsearch"]["environment"])
+        self.assertEqual(
+            "${ELASTICSEARCH_PORT:-9201}",
+            bootstrap_service["environment"]["ELASTICSEARCH_PORT"],
+        )
+        self.assertEqual(
+            {"elasticsearch": {"condition": "service_healthy"}},
+            bootstrap_service["depends_on"],
+        )
+        self.assertEqual(
+            {"condition": "service_completed_successfully"},
+            compose["services"]["kibana"]["depends_on"]["elastic-bootstrap"],
+        )
+        self.assertEqual(
+            {"condition": "service_completed_successfully"},
+            compose["services"]["logstash"]["depends_on"]["elastic-bootstrap"],
+        )
+        self.assertEqual(
+            "persisted",
+            compose["services"]["logstash"]["environment"]["QUEUE_TYPE"],
+        )
+        self.assertIn(
+            "SERVER_PUBLICBASEURL",
+            compose["services"]["kibana"]["environment"],
+        )
+        bootstrap = next(item for item in manifest["items"] if item.get("kind") == "Job")
+        bootstrap_script = bootstrap["spec"]["template"]["spec"]["containers"][0]["command"][2]
+        self.assertIn("kibana_system", bootstrap_script)
+        self.assertIn("logstash_internal", bootstrap_script)
+        self.assertIn("LOGSTASH_WRITER_PASSWORD", bootstrap_script)
+        images = [
+            item.get("spec", {})
+            .get("template", {})
+            .get("spec", {})
+            .get("containers", [{}])[0]
+            .get("image")
+            for item in manifest["items"]
+        ]
+        self.assertIn(DOCKER_IMAGE_LOCKS["elasticsearch"], images)
+        self.assertIn(DOCKER_IMAGE_LOCKS["kibana"], images)
+        self.assertIn(DOCKER_IMAGE_LOCKS["logstash"], images)
+        logstash_workload = next(
+            item
+            for item in manifest["items"]
+            if item.get("metadata", {}).get("name") == "observeweaver-logstash"
+        )
+        self.assertEqual("StatefulSet", logstash_workload["kind"])
+        self.assertEqual(
+            "data",
+            logstash_workload["spec"]["volumeClaimTemplates"][0]["metadata"]["name"],
+        )
+        logstash_mounts = logstash_workload["spec"]["template"]["spec"]["containers"][0][
+            "volumeMounts"
+        ]
+        self.assertEqual(
+            "/usr/share/logstash/data",
+            next(
+                mount["mountPath"]
+                for mount in logstash_mounts
+                if mount["name"] == "data"
+            ),
+        )
+
+        kubernetes_verifier = (
+            ROOT / "deployments" / "kubernetes" / "verify.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("job/observeweaver-elastic-bootstrap", kubernetes_verifier)
+        raw_elasticsearch_tasks = (
+            ROOT
+            / "deployments"
+            / "raw"
+            / "ansible"
+            / "roles"
+            / "observeweaver"
+            / "tasks"
+            / "elasticsearch.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "- observeweaver.components.kibana.enabled | bool",
+            raw_elasticsearch_tasks,
+        )
+        raw_common_tasks = (
+            ROOT
+            / "deployments"
+            / "raw"
+            / "ansible"
+            / "roles"
+            / "observeweaver"
+            / "tasks"
+            / "common.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("inventory_hostname in groups.get('logs', [])", raw_common_tasks)
+        raw_logstash_config = (
+            ROOT
+            / "deployments"
+            / "raw"
+            / "ansible"
+            / "roles"
+            / "observeweaver"
+            / "templates"
+            / "logstash.yml.j2"
+        ).read_text(encoding="utf-8")
+        self.assertIn("queue.type: persisted", raw_logstash_config)
+
+    def test_kafka_is_rendered_for_all_linux_engines(self) -> None:
+        config = load_config(ROOT / "config" / "examples" / "cluster.yml")
+        with tempfile.TemporaryDirectory() as directory:
+            render(config, directory)
+            root = Path(directory) / "production"
+            manifest = yaml.safe_load(
+                (root / "kubernetes" / "kafka-stack.values.generated.yml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            env = (root / "docker" / ".env.generated").read_text(encoding="utf-8")
+            inventory = (root / "ansible" / "inventory.generated.ini").read_text(
+                encoding="utf-8"
+            )
+        self.assertIn("KAFKA_IMAGE=apache/kafka@sha256:", env)
+        self.assertIn("[kafka]\nobs-01", inventory)
+        kafka_statefulset = next(
+            item
+            for item in manifest["items"]
+            if item.get("kind") == "StatefulSet"
+            and item.get("metadata", {}).get("name") == "observeweaver-kafka"
+        )
+        self.assertEqual("StatefulSet", kafka_statefulset["kind"])
+        self.assertEqual(3, kafka_statefulset["spec"]["replicas"])
+        self.assertTrue(
+            kafka_statefulset["spec"]["template"]["spec"]["containers"][0]["image"].startswith(
+                "apache/kafka@sha256:"
+            )
+        )
+        kafka_network_policy = next(
+            item
+            for item in manifest["items"]
+            if item.get("kind") == "NetworkPolicy"
+            and item.get("metadata", {}).get("name") == "observeweaver-kafka-private"
+        )
+        self.assertEqual(["Ingress"], kafka_network_policy["spec"]["policyTypes"])
+        self.assertEqual(
+            {"port": 9092, "protocol": "TCP"},
+            kafka_network_policy["spec"]["ingress"][0]["ports"][0],
+        )
+        standalone_compose = yaml.safe_load(
+            (ROOT / "deployments" / "docker" / "compose.yml").read_text(encoding="utf-8")
+        )
+        kafka_service = standalone_compose["services"]["kafka"]
+        self.assertEqual(["kafka"], kafka_service["profiles"])
+        self.assertEqual("${KAFKA_IMAGE:?KAFKA_IMAGE is required}", kafka_service["image"])
+        self.assertEqual(
+            "INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT",
+            kafka_service["environment"]["KAFKA_LISTENER_SECURITY_PROTOCOL_MAP"],
+        )
+        self.assertIn(
+            "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${KAFKA_PORT:-9092}:${KAFKA_PORT:-9092}",
+            kafka_service["ports"],
+        )
+        raw_tasks = (
+            ROOT
+            / "deployments"
+            / "raw"
+            / "ansible"
+            / "roles"
+            / "observeweaver"
+            / "tasks"
+            / "kafka.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("kafka-storage.sh", raw_tasks)
+
+    def test_confluent_kafka_selects_locked_runtime_for_all_renderers(self) -> None:
+        config = load_config(ROOT / "config" / "examples" / "cluster.yml")
+        config["components"]["kafka"]["distribution"] = "confluent"
+        config["components"]["kafka"]["version"] = "8.3.0"
+        with tempfile.TemporaryDirectory() as directory:
+            render(config, directory)
+            root = Path(directory) / "production"
+            manifest = yaml.safe_load(
+                (root / "kubernetes" / "kafka-stack.values.generated.yml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            env = (root / "docker" / ".env.generated").read_text(encoding="utf-8")
+            group_vars = yaml.safe_load(
+                (root / "ansible" / "group_vars.generated.yml").read_text(
+                    encoding="utf-8"
+                )
+            )
+        kafka_statefulset = next(
+            item
+            for item in manifest["items"]
+            if item.get("kind") == "StatefulSet"
+            and item.get("metadata", {}).get("name") == "observeweaver-kafka"
+        )
+        kafka_container = kafka_statefulset["spec"]["template"]["spec"]["containers"][0]
+        self.assertTrue(kafka_container["image"].startswith("confluentinc/cp-kafka@sha256:"))
+        self.assertIn("/etc/confluent/docker/run", kafka_container["args"][0])
+        self.assertIn("kafka-broker-api-versions", str(kafka_container["readinessProbe"]))
+        self.assertIn("KAFKA_DISTRIBUTION=confluent", env)
+        self.assertEqual(
+            "confluent", group_vars["observeweaver"]["components"]["kafka"]["distribution"]
+        )
+        raw_tasks = (
+            ROOT
+            / "deployments"
+            / "raw"
+            / "ansible"
+            / "roles"
+            / "observeweaver"
+            / "tasks"
+            / "kafka.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "packages.confluent.io/archive/8.3/confluent-community-8.3.0.tar.gz",
+            raw_tasks,
+        )
+        self.assertIn(
+            "sha256:cf083fd41bcbfb17336fd13d3aa7dfdee62afa04407d9e631e5d4ceb4180ca88",
+            raw_tasks,
+        )
+        kafka_service = (
+            ROOT
+            / "deployments"
+            / "raw"
+            / "ansible"
+            / "roles"
+            / "observeweaver"
+            / "templates"
+            / "kafka.service.j2"
+        ).read_text(encoding="utf-8")
+        self.assertIn("observeweaver_kafka_start_binary", kafka_service)
+
     def test_docker_image_locks_are_immutable_and_match_the_lockfile(self) -> None:
         lockfile = yaml.safe_load((ROOT / "versions" / "stable.yml").read_text(encoding="utf-8"))
         self.assertEqual(lockfile["containerImages"], DOCKER_IMAGE_LOCKS)
         self.assertEqual(set(DOCKER_IMAGE_TAGS), set(DOCKER_IMAGE_LOCKS))
-        self.assertEqual(11, len(DOCKER_IMAGE_LOCKS))
+        self.assertEqual(16, len(DOCKER_IMAGE_LOCKS))
         for name, image in DOCKER_IMAGE_LOCKS.items():
             repository, digest = image.split("@", 1)
             self.assertTrue(repository)
@@ -325,7 +643,7 @@ class RenderTests(unittest.TestCase):
             (ROOT / "versions" / "kubernetes-images.lock.yml").read_text(encoding="utf-8")
         )
         locks = lockfile["chartImages"]
-        self.assertEqual(25, len(locks))
+        self.assertEqual(28, len(locks))
         self.assertIn("postgres:17", locks)
         self.assertIn("redis:8.8.0", locks)
         for image in locks.values():
@@ -359,6 +677,7 @@ class RenderTests(unittest.TestCase):
         config["components"]["zabbix"]["enabled"] = False
         config["components"]["graylog"]["enabled"] = False
         config["components"]["opensearch"]["enabled"] = False
+        config["components"]["kafka"]["enabled"] = False
         self.assertEqual([], validate_config(config).errors)
         with tempfile.TemporaryDirectory() as directory:
             render(config, directory)
@@ -678,6 +997,7 @@ class RenderTests(unittest.TestCase):
                 "grafana.observability.example.com",
                 "graylog.observability.example.com",
                 "zabbix.observability.example.com",
+                "kibana.observability.example.com",
                 "*.observability.example.com",
             ],
             spec["dnsNames"],
@@ -786,6 +1106,12 @@ class SecretTests(unittest.TestCase):
         )
         self.assertEqual("", values["MONGODB_URI"])
         self.assertTrue(values["REDIS_PASSWORD"])
+        self.assertTrue(values["ELASTICSEARCH_PASSWORD"])
+        self.assertRegex(values["ELASTICSEARCH_PASSWORD"], r"^[A-Za-z0-9]+$")
+        self.assertRegex(values["KIBANA_SYSTEM_PASSWORD"], r"^[A-Za-z0-9]+$")
+        self.assertGreaterEqual(len(values["KIBANA_ENCRYPTION_KEY"]), 32)
+        self.assertGreaterEqual(len(values["KIBANA_REPORTING_ENCRYPTION_KEY"]), 32)
+        self.assertGreaterEqual(len(values["KIBANA_SECURITY_ENCRYPTION_KEY"]), 32)
 
     def test_secret_file_refuses_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

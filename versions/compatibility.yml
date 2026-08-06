@@ -1,5 +1,5 @@
 schemaVersion: 1
-updated: "2026-07-30"
+updated: "2026-08-06"
 
 graylog:
   "7.1":
@@ -19,7 +19,35 @@ graylog:
       rolling: false
       sameVersionDataNodeRequired: true
 
+elasticStack:
+  tested: "9.4.2"
+  elasticsearch: "9.4.2"
+  kibana: "9.4.2"
+  logstash: "9.4.2"
+  requirements:
+    sameVersion: true
+    kibanaAfterElasticsearch: true
+    logstashAfterElasticsearch: true
+    security: "Built-in authentication is enabled and generated credentials are read from the secret file; the Docker multi-host preview is the documented trusted-host exception."
+  kubernetes:
+    deployment: "Locked-image StatefulSet/Deployment manifests"
+    storageClassRequiredForCluster: true
+
+kafka:
+  tested: "4.3.1"
+  distributions:
+    apache: "4.3.1"
+    confluent: "8.3.0 Community (cp-kafka; Kafka 4.3.x compatible)"
+  mode: KRaft
+  java: ">=17"
+  cluster:
+    controllerQuorum: "odd number of at least 3"
+    replicationFactor: 3
+  security: "Generated listeners are private-network PLAINTEXT by default; restrict broker/controller ports and add operator-managed TLS/SASL before public exposure."
+  licensing: "The confluent option is the Apache-licensed Confluent Community cp-kafka image/archive; cp-server and other commercial Confluent Platform features are not deployed."
+
 notes:
   - Graylog Data Node is preferred over a self-managed OpenSearch backend.
   - OpenSearch 3.x is a separate general-purpose profile and is never a Graylog backend.
   - The repository license does not change any deployed component license.
+  - Elasticsearch, Kibana, and Logstash are pinned as one 9.4.2 stack; do not mix minor versions.

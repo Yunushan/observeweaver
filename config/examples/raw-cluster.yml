@@ -54,10 +54,17 @@ network:
     graylogSyslogTcp: 1514
     graylogSyslogUdp: 1514
     opensearch: 9200
+    elasticsearch: 9201
+    elasticsearchTransport: 9301
+    kibana: 5601
+    logstashBeats: 5045
+    logstashApi: 9600
     opensearchTransport: 9300
     mongodb: 27017
     redis: 6379
     redisSentinel: 26379
+    kafka: 9092
+    kafkaController: 9095
 
 tls:
   mode: provided
@@ -79,10 +86,13 @@ storage:
     grafana: 20Gi
     graylogJournal: 100Gi
     opensearch: 1Ti
+    elasticsearch: 1Ti
+    logstash: 20Gi
     mongodb: 50Gi
     postgresql: 50Gi
     zabbixPostgresql: 50Gi
     redis: 50Gi
+    kafka: 500Gi
 
 retention:
   metricsDays: 30
@@ -123,9 +133,26 @@ components:
     version: "2.19.5"
     replicas: 3
     javaOpts: -Xms8g -Xmx8g
+  elasticsearch:
+    enabled: true
+    version: "9.4.2"
+    replicas: 3
+  kibana:
+    enabled: true
+    version: "9.4.2"
+    replicas: 3
+  logstash:
+    enabled: true
+    version: "9.4.2"
+    replicas: 3
   redis:
     enabled: true
     version: "8.8.0"
+    replicas: 3
+  kafka:
+    enabled: true
+    distribution: apache
+    version: "4.3.1"
     replicas: 3
 
 dependencies:

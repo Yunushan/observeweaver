@@ -5,6 +5,8 @@
 Back up each state domain independently:
 
 - OpenSearch/Data Node snapshots to a separate repository.
+- Elasticsearch snapshots and Kibana saved objects to a separate repository;
+  include the first raw Elasticsearch member's private CA in protected backup.
 - MongoDB with replica-set-aware `mongodump` or an operator-supported backup.
 - Grafana PostgreSQL plus provisioned dashboards/datasources.
 - Zabbix PostgreSQL, including the configuration, history, trends, and event
@@ -13,6 +15,9 @@ Back up each state domain independently:
 - Prometheus snapshots when historical local TSDB recovery is required.
 - Graylog content packs, pipeline rules, index-set settings, certificates, and
   the protected secret material.
+- Kafka topic data and consumer offsets from every broker log volume. Back up
+  topic configuration separately and test restore/replay with the same cluster
+  ID and broker quorum.
 - Canonical ObserveWeaver config and compatibility locks.
 
 Schedule restore tests. An untested backup is not an availability control.
@@ -30,6 +35,8 @@ Schedule restore tests. An untested backup is not an availability control.
 Graylog upgrades are not rolling: stop all Graylog servers as required by the
 upstream upgrade guide, and keep Graylog/Data Node on the same release.
 OpenSearch 3.x must never be introduced into the Graylog 7.1 backend.
+Keep Elasticsearch, Kibana, and Logstash on the same 9.4.2 version and upgrade
+Elasticsearch before Kibana/Logstash.
 
 ## Decommissioning and topology changes
 
@@ -45,6 +52,10 @@ certificates. Back up `/etc/opensearch/observeweaver-ca` before replacing that
 host. Changing a raw node's configured IP reissues its SAN certificate on the
 next playbook run, but it does not perform OpenSearch shard or MongoDB
 membership changes for you.
+
+The first raw Elasticsearch member similarly holds
+`/etc/elasticsearch/observeweaver-ca`. Back it up before replacing that host;
+the CA key is required to issue replacement node certificates.
 
 ## Credential rotation
 
@@ -64,7 +75,11 @@ maintenance window.
 - OTel Collector refused/dropped telemetry and queue pressure.
 - Graylog journal utilization and processing buffers.
 - OpenSearch cluster health, unassigned shards, disk watermarks, and snapshots.
+- Elasticsearch cluster health, unassigned shards, disk watermarks, snapshot
+  success, Kibana task failures, and Logstash pipeline/API errors.
 - MongoDB replica-set lag, elections, and backup success.
+- Kafka broker/controller health, under-replicated partitions, ISR shrinkage,
+  controller elections, and disk retention/segment growth.
 - Zabbix Server queue, database connectivity, and the external PostgreSQL
   backup/failover state.
 - Certificate and credential expiration/rotation.

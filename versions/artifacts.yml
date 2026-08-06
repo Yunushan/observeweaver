@@ -1,5 +1,5 @@
 schemaVersion: 1
-updated: "2026-07-31"
+updated: "2026-08-06"
 
 artifacts:
   prometheus:
@@ -57,6 +57,13 @@ artifacts:
     windowsZipSha512: e9ba47d5143250269c2083843d15bb4df363823402c80c1f8650b613ae118e5c7efd00d60cc38146c26d1c4e8837b2e4b23d3fc90e451833b6fdd255671f7ae8
     signatureSuffix: .sig
 
+  elasticStack:
+    version: "9.4.2"
+    repositoryDeb: https://artifacts.elastic.co/packages/9.x/apt
+    repositoryRpm: https://artifacts.elastic.co/packages/9.x/yum
+    signingKey: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    packages: [elasticsearch, kibana, logstash]
+
   mongodb:
     version: "8.0.28"
     ubuntu2204: https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-8.0.28.tgz
@@ -69,3 +76,13 @@ artifacts:
     version: "8.8.0"
     linuxSource: https://download.redis.io/releases/redis-8.8.0.tar.gz
     linuxSourceSha256: 88422181efb0c9c0abba332e3e391d409e1e13714b838931669235e5796f704b
+
+  kafka:
+    version: "4.3.1"
+    linuxSource: https://downloads.apache.org/kafka/4.3.1/kafka_2.13-4.3.1.tgz
+    linuxSourceSha512: c7d7b2318cb51aa0c61d3246a51c349210073c5c9b754947ef965a439f2f939e8600f204e134a75ac31faf3829c9370960ef7c6a9886c8a1dbf0339a21f4c54d
+  confluentKafka:
+    version: "8.3.0"
+    distribution: community
+    linuxSource: https://packages.confluent.io/archive/8.3/confluent-community-8.3.0.tar.gz
+    linuxSourceSha256: cf083fd41bcbfb17336fd13d3aa7dfdee62afa04407d9e631e5d4ceb4180ca88

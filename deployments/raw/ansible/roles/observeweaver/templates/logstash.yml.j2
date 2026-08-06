@@ -1,0 +1,8 @@
+http.host: 0.0.0.0
+http.port: {{ observeweaver.network.ports.logstashApi }}
+path.data: {{ observeweaver_data_root }}/logstash
+path.queue: {{ observeweaver_data_root }}/logstash/queue
+path.logs: /var/log/logstash
+queue.type: persisted
+pipeline.ordered: true
+monitoring.enabled: false

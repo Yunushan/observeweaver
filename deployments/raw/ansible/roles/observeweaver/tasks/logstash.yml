@@ -1,0 +1,104 @@
+---
+- name: Install Elastic repository key for Logstash on Debian family
+  ansible.builtin.get_url:
+    url: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+    dest: /usr/share/keyrings/elastic.gpg
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_os_family == 'Debian'
+
+- name: Configure Elastic repository for Logstash on Debian family
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/keyrings/elastic.gpg]
+      https://artifacts.elastic.co/packages/9.x/apt stable main
+    filename: elastic-9.x
+    state: present
+    update_cache: true
+  when: ansible_os_family == 'Debian'
+
+- name: Configure Elastic repository for Logstash on Red Hat family
+  ansible.builtin.yum_repository:
+    name: elastic-9.x
+    description: Elastic 9.x packages
+    baseurl: https://artifacts.elastic.co/packages/9.x/yum
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+  when: ansible_os_family == 'RedHat'
+
+- name: Install pinned Logstash package
+  ansible.builtin.package:
+    name: >-
+      {{ 'logstash=' ~ observeweaver.components.logstash.version
+      if ansible_os_family == 'Debian'
+      else 'logstash-' ~ observeweaver.components.logstash.version }}
+    state: present
+
+- name: Create Logstash data directory
+  ansible.builtin.file:
+    path: "{{ observeweaver_data_root }}/logstash"
+    state: directory
+    owner: logstash
+    group: logstash
+    mode: "0750"
+
+- name: Install Elasticsearch CA for Logstash on a data node
+  ansible.builtin.copy:
+    src: /etc/elasticsearch/observeweaver-root-ca.pem
+    dest: /etc/logstash/observeweaver-root-ca.pem
+    remote_src: true
+    owner: root
+    group: logstash
+    mode: "0644"
+  when: inventory_hostname in groups.get('elasticsearch', [])
+  notify: Restart logstash
+
+- name: Fetch Elasticsearch CA for a separate Logstash host
+  ansible.builtin.slurp:
+    src: /etc/elasticsearch/observeweaver-root-ca.pem
+  register: observeweaver_logstash_ca_source
+  delegate_to: "{{ groups['elasticsearch'] | first }}"
+  when: inventory_hostname not in groups.get('elasticsearch', [])
+
+- name: Install Elasticsearch CA on Logstash host
+  ansible.builtin.copy:
+    dest: /etc/logstash/observeweaver-root-ca.pem
+    owner: root
+    group: logstash
+    mode: "0644"
+    content: "{{ observeweaver_logstash_ca_source.content | b64decode }}"
+  when: inventory_hostname not in groups.get('elasticsearch', [])
+  notify: Restart logstash
+
+- name: Configure Logstash service
+  ansible.builtin.template:
+    src: logstash.yml.j2
+    dest: /etc/logstash/logstash.yml
+    owner: root
+    group: logstash
+    mode: "0640"
+  notify: Restart logstash
+
+- name: Configure ObserveWeaver Logstash pipeline
+  ansible.builtin.template:
+    src: logstash-observeweaver.conf.j2
+    dest: /etc/logstash/conf.d/observeweaver.conf
+    owner: root
+    group: logstash
+    mode: "0640"
+  notify: Restart logstash
+
+- name: Enable Logstash
+  ansible.builtin.systemd_service:
+    name: logstash
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for Logstash API
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[inventory_hostname].ansible_host }}"
+    port: "{{ observeweaver.network.ports.logstashApi }}"
+    timeout: 180

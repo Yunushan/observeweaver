@@ -24,9 +24,9 @@ files under `build/`.
 - `control`: K3s/RKE2 server/etcd or orchestration role.
 - `metrics`: Prometheus, Alertmanager, and Grafana.
 - `telemetry`: OTel gateway/agent.
-- `logs`: Graylog.
-- `data`: MongoDB, OpenSearch/Data Node, and Redis.
-- `ingress`: HTTP/TCP/UDP entrypoint.
+- `logs`: Graylog and Logstash.
+- `data`: MongoDB, OpenSearch/Data Node, Elasticsearch, Redis, and Kafka.
+- `ingress`: HTTP/TCP/UDP entrypoint, including Kibana.
 
 Compact clusters may assign every role to every node. Split production
 deployments should use dedicated workers/data nodes and anti-affinity.
@@ -45,6 +45,27 @@ private state service, not an ingress workload: do not publish either port to
 the Internet. Applications should use the authenticated Redis endpoint in
 standalone mode or query the Sentinel service in cluster mode before selecting
 the active primary.
+
+Kafka uses `kafka` (default `9092`) for broker/client traffic and
+`kafkaController` (default `9095`) for the private KRaft controller quorum. The
+generated profile uses Apache Kafka 4.3.1 in combined broker/controller mode by
+default. Set `components.kafka.distribution: confluent` and version `8.3.0` to
+use the Apache-licensed Confluent Community `cp-kafka` image or raw archive;
+both distributions disable ZooKeeper, persist broker logs, and keep listeners
+internal to the deployment network. Cluster mode requires an odd quorum of at
+least three; restrict both ports to Kafka data nodes and add operator-managed
+TLS/SASL before allowing external clients. Commercial Confluent Server features
+are not part of this profile.
+
+The optional Elastic Stack uses `elasticsearch`/`elasticsearchTransport` (9201/9301
+by default), `kibana` (5601), `logstashBeats` (5045), and `logstashApi` (9600).
+Elasticsearch, Kibana, and Logstash must use the same pinned 9.4.2 version. The
+generated secret file supplies the `elastic` and `kibana_system` bootstrap
+passwords, the `logstash_internal` writer password, and Kibana encryption keys;
+Logstash accepts Beats input and writes daily indices to Elasticsearch.
+K3s/RKE2 creates a separate internal CA Secret for Elasticsearch HTTPS and
+transport TLS; Docker cluster relies on its restricted host network, while raw
+Linux uses per-node certificates.
 
 ## Storage semantics
 
@@ -72,6 +93,12 @@ deployment. The raw role then skips local MongoDB installation and bootstrap.
 In mature environments, replace the env file with SOPS, Vault, or an external
 secret controller while preserving the same logical keys.
 
+Elastic deployments additionally require `ELASTICSEARCH_PASSWORD`,
+`KIBANA_SYSTEM_PASSWORD`, `KIBANA_ENCRYPTION_KEY`,
+`KIBANA_REPORTING_ENCRYPTION_KEY`, `KIBANA_SECURITY_ENCRYPTION_KEY`, and
+`LOGSTASH_WRITER_PASSWORD`. The generator creates safe values; rotate them with
+the upstream Elastic security tools and update the secret controller together.
+
 `REDIS_PASSWORD` is generated automatically and is required by every Redis
 server and Sentinel profile. Redis 8 is source-available under a tri-license;
 review the chosen license option and your redistribution/SaaS obligations
@@ -81,12 +108,12 @@ before deployment.
 
 - `provided`: on K3s/RKE2, the installer imports `provided.certificateFile`
   (a PEM/CRT leaf plus any intermediate chain) and `provided.privateKeyFile`
-  into `tls.secretName` as a `kubernetes.io/tls` Secret. Grafana, Graylog, and
+  into `tls.secretName` as a `kubernetes.io/tls` Secret. Grafana, Graylog, Kibana, and
   Zabbix Ingresses reference the same Secret. On raw/Docker, the configured
   external reverse proxy or load balancer owns those file paths and the VIP.
 - `cert-manager`: K3s/RKE2 production mode. The installer creates one
   `Certificate` named `tls.secretName` using the named existing `ClusterIssuer`;
-  it covers enabled `grafana`, `graylog`, and `zabbix` DNS names plus
+  it covers enabled `grafana`, `graylog`, `kibana`, and `zabbix` DNS names plus
   `additionalDnsNames` and `additionalIpAddresses`.
 - `disabled`: lab only; validation rejects it in production.
 

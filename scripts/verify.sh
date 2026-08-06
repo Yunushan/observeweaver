@@ -87,7 +87,11 @@ roles = {
     "zabbix": "metrics",
     "graylog": "logs",
     "opensearch": "data",
+    "elasticsearch": "data",
+    "kibana": "ingress",
+    "logstash": "logs",
     "redis": "data",
+    "kafka": "data",
 }
 eligible = [node for node in config["nodes"] if roles[component] in node["roles"]]
 replicas = config["components"][component]["replicas"]
@@ -107,6 +111,18 @@ if [[
 else
   bind_address="$(read_config network.bindAddress)"
 fi
+if [[
+  "$(read_config deployment.engine)" == "raw" &&
+  "$(read_config deployment.mode)" == "standalone"
+]]; then
+  bind_address="$(PYTHONPATH="${REPOSITORY_ROOT}/src" "${PYTHON_BIN}" - "${CONFIG_FILE}" <<'PY'
+import sys
+from observeweaver.config import load_config
+
+print(load_config(sys.argv[1])["nodes"][0]["address"])
+PY
+  )"
+fi
 if [[ "${bind_address}" == "0.0.0.0" || "${bind_address}" == "::" ]]; then
   bind_address="127.0.0.1"
 fi
@@ -117,6 +133,7 @@ if [[ "${secret_file}" != /* ]]; then
   secret_file="${REPOSITORY_ROOT}/${secret_file}"
 fi
 opensearch_ca_file="${OPENSEARCH_CA_FILE:-/etc/opensearch/observeweaver-root-ca.pem}"
+elasticsearch_ca_file="${ELASTICSEARCH_CA_FILE:-/etc/elasticsearch/observeweaver-root-ca.pem}"
 
 declare -A checks=()
 if [[
@@ -166,6 +183,28 @@ if [[
     checks[opensearch]="https://${bind_address}:$(read_config network.ports.opensearch)/_cluster/health"
   fi
 fi
+if [[
+  "$(read_config components.elasticsearch.enabled)" == "True" &&
+  "$(component_is_local elasticsearch)" == "True"
+]]; then
+  if [[ "$(read_config deployment.engine)" == "raw" ]]; then
+    checks[elasticsearch]="https://${bind_address}:$(read_config network.ports.elasticsearch)/_cluster/health"
+  else
+    checks[elasticsearch]="http://${bind_address}:$(read_config network.ports.elasticsearch)/_cluster/health"
+  fi
+fi
+if [[
+  "$(read_config components.kibana.enabled)" == "True" &&
+  "$(component_is_local kibana)" == "True"
+]]; then
+  checks[kibana]="http://${bind_address}:$(read_config network.ports.kibana)/api/status"
+fi
+if [[
+  "$(read_config components.logstash.enabled)" == "True" &&
+  "$(component_is_local logstash)" == "True"
+]]; then
+  checks[logstash]="http://${bind_address}:$(read_config network.ports.logstashApi)/?pretty"
+fi
 
 status=0
 for component in "${!checks[@]}"; do
@@ -196,6 +235,30 @@ for component in "${!checks[@]}"; do
     else
       printf 'FAIL  %s (%s)\n' \
         "${component}" "${checks[${component}]}" >&2
+      status=1
+    fi
+  elif [[ "${component}" == "elasticsearch" ]]; then
+    if [[ ! -r "${secret_file}" ]]; then
+      printf 'FAIL  elasticsearch (secret file is not readable: %s)\n' \
+        "${secret_file}" >&2
+      status=1
+      continue
+    fi
+    elasticsearch_password="$(read_secret "${secret_file}" ELASTICSEARCH_PASSWORD)"
+    curl_args=(--fail --silent --show-error --max-time 10 --user "elastic:${elasticsearch_password}")
+    if [[ "$(read_config deployment.engine)" == "raw" ]]; then
+      if [[ ! -r "${elasticsearch_ca_file}" ]]; then
+        printf 'FAIL  elasticsearch (CA file is not readable: %s)\n' \
+          "${elasticsearch_ca_file}" >&2
+        status=1
+        continue
+      fi
+      curl_args+=(--cacert "${elasticsearch_ca_file}")
+    fi
+    if curl "${curl_args[@]}" "${checks[${component}]}" >/dev/null; then
+      printf 'PASS  %s\n' "${component}"
+    else
+      printf 'FAIL  %s (%s)\n' "${component}" "${checks[${component}]}" >&2
       status=1
     fi
   elif curl --fail --silent --show-error --max-time 10 \
@@ -265,6 +328,32 @@ PY
   else
     printf 'FAIL  redis (%s:%s)\n' \
       "${redis_host}" "$(read_config network.ports.redis)" >&2
+    status=1
+  fi
+fi
+
+if [[
+  "$(read_config components.kafka.enabled)" == "True" &&
+  "$(component_is_local kafka)" == "True"
+]]; then
+  kafka_host="${bind_address#[}"
+  kafka_host="${kafka_host%]}"
+  kafka_port="$(read_config network.ports.kafka)"
+  kafka_controller_port="$(read_config network.ports.kafkaController)"
+  if "${PYTHON_BIN}" - "${kafka_host}" "${kafka_port}" "${kafka_controller_port}" <<'PY'
+import socket
+import sys
+
+host, broker_port, controller_port = sys.argv[1:]
+for raw_port in (broker_port, controller_port):
+    with socket.create_connection((host, int(raw_port)), timeout=10):
+        pass
+PY
+  then
+    printf 'PASS  kafka\n'
+  else
+    printf 'FAIL  kafka (%s:%s/%s)\n' \
+      "${kafka_host}" "${kafka_port}" "${kafka_controller_port}" >&2
     status=1
   fi
 fi
