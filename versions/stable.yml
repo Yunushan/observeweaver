@@ -1,6 +1,6 @@
 # Tested application pinset. Update compatibility.yml and run the complete
 # integration matrix before changing a Graylog search-backend version.
-updated: "2026-07-31"
+updated: "2026-08-06"
 
 applications:
   prometheus: "3.13.1"
@@ -10,8 +10,13 @@ applications:
   zabbix: "7.0.28"
   graylog: "7.1.6"
   opensearchGraylogBackend: "2.19.5"
+  elasticsearch: "9.4.2"
+  kibana: "9.4.2"
+  logstash: "9.4.2"
   mongodb: "8.0.28"
   redis: "8.8.0"
+  kafka: "4.3.1"
+  confluentKafka: "8.3.0"
   postgresql: "17"
 
 containerImages:
@@ -20,13 +25,18 @@ containerImages:
   alertmanager: "prom/alertmanager@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d"
   grafana: "grafana/grafana@sha256:7cb8c64c4d57a57e734073f3cc94620adb24a0acb929bd80ba9f14017e3a975b"
   opentelemetry: "otel/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6"
-  postgresql: "postgres@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d"
+  postgresql: "postgres@sha256:7958605b474b3d264a969cb3a123d6aa00ad1e1fe9da8a69984dabb704d93317"
   zabbixServer: "zabbix/zabbix-server-pgsql@sha256:7b8628474136fae6e1d643278e46ab6d3cd66146fe0a4dbc64a1d22a61ae0c85"
   zabbixWeb: "zabbix/zabbix-web-nginx-pgsql@sha256:4d109f30358363e4483d4aac43eeec80eb4ec605c9d300f4c235475056c5b06e"
-  mongodb: "mongo@sha256:5351bff2b5d1563e3fa603a74b9be85ef9323e10aeb0b45cea933a93876e77fd"
+  mongodb: "mongo@sha256:98605bfa1bb2a15dd82109e1d78ad31527a9a744909fab4606076fa71a0ae515"
   opensearch: "opensearchproject/opensearch@sha256:4ee82ecb35d837a6186c81aaa64c8a5bce71aa956edbd87f1f684ab56af52c44"
+  elasticsearch: "docker.elastic.co/elasticsearch/elasticsearch@sha256:be5f49784ff5ec8a5b5d7ba17f944d9d6b10c067f596ee93e6b6cb82d2dd874c"
+  kibana: "docker.elastic.co/kibana/kibana@sha256:b9749a7672939d1a96dd9c99b86fd84634aab8d03b0889f02177d881aea3eb01"
+  logstash: "docker.elastic.co/logstash/logstash@sha256:532fa8633866e231d14b8e8860488f224f7f354bc63b43b099ddf2a3a87e2845"
   graylog: "graylog/graylog@sha256:b9a4fd841e4c49c148043265f579554a3bdadf8137ff381b686c194ccb9a3365"
   redis: "redis@sha256:234c902a2db49461a129e2d4aeff85b28cf20187ed274a67f6e50995fa713c7b"
+  kafka: "apache/kafka@sha256:77e3df9054047a88b520d0cc46e16696d3b22022e1d580aeccd2632df6532837"
+  kafkaConfluent: "confluentinc/cp-kafka@sha256:c2cedb691aec9963114fb0b4e45fa49a47bb374a89c241c4ecb68a5fc904e5e3"
 
 profiles:
   opensearchGeneralPurpose:

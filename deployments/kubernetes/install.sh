@@ -105,6 +105,49 @@ create_public_tls_secret() {
     -o yaml | kubectl apply -f -
 }
 
+create_elastic_transport_secret() {
+  local namespace="$1"
+  local secret_name="$2"
+  if kubectl -n "${namespace}" get secret "${secret_name}" >/dev/null 2>&1; then
+    return 0
+  fi
+  local workdir
+  workdir="$(mktemp -d)"
+  openssl req -x509 -newkey rsa:4096 -nodes -sha256 -days 3650 \
+    -keyout "${workdir}/ca.key" \
+    -out "${workdir}/ca.crt" \
+    -subj "/O=ObserveWeaver/OU=Elastic/CN=ObserveWeaver Elastic Root CA" \
+    -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    >/dev/null 2>&1
+  openssl req -new -newkey rsa:2048 -nodes -sha256 \
+    -keyout "${workdir}/tls.key" \
+    -out "${workdir}/tls.csr" \
+    -subj "/O=ObserveWeaver/OU=Elastic/CN=observeweaver-elasticsearch" \
+    >/dev/null 2>&1
+  cat >"${workdir}/tls.ext" <<EOF
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth,clientAuth
+subjectAltName=DNS:observeweaver-elasticsearch,DNS:observeweaver-elasticsearch.${namespace}.svc.cluster.local,DNS:*.observeweaver-elasticsearch-headless,DNS:*.observeweaver-elasticsearch-headless.${namespace}.svc.cluster.local
+EOF
+  openssl x509 -req -sha256 -days 825 \
+    -in "${workdir}/tls.csr" \
+    -CA "${workdir}/ca.crt" \
+    -CAkey "${workdir}/ca.key" \
+    -CAcreateserial \
+    -extfile "${workdir}/tls.ext" \
+    -out "${workdir}/tls.crt" \
+    >/dev/null 2>&1
+  kubectl -n "${namespace}" create secret generic "${secret_name}" \
+    --from-file=tls.crt="${workdir}/tls.crt" \
+    --from-file=tls.key="${workdir}/tls.key" \
+    --from-file=ca.crt="${workdir}/ca.crt" \
+    --dry-run=client \
+    -o yaml | kubectl apply -f -
+  rm -rf -- "${workdir}"
+}
+
 make_graylog_secret_values() {
   local secret_path="$1"
   local destination="$2"
@@ -261,11 +304,47 @@ if [[ "$(config_value components.zabbix.enabled)" == "true" ]]; then
     --timeout 20m
 fi
 
+if [[ "$(config_value components.elasticsearch.enabled)" == "true" ]]; then
+  require_command openssl
+  create_elastic_transport_secret \
+    "${namespace}" "observeweaver-elasticsearch-transport-tls"
+  elastic_stack_manifest="${GENERATED_VALUES_DIR}/elastic-stack.values.generated.yml"
+  if [[ ! -r "${elastic_stack_manifest}" ]]; then
+    printf 'ERROR: generated Elastic Stack manifest is missing: %s\n' "${elastic_stack_manifest}" >&2
+    exit 2
+  fi
+  kubectl -n "${namespace}" delete job/observeweaver-elastic-bootstrap \
+    --ignore-not-found --wait=true >/dev/null
+  kubectl -n "${namespace}" apply --filename "${elastic_stack_manifest}"
+  kubectl -n "${namespace}" rollout status statefulset/observeweaver-elasticsearch --timeout 20m
+  if [[ "$(config_value components.kibana.enabled)" == "true" || \
+    "$(config_value components.logstash.enabled)" == "true" ]]; then
+    kubectl -n "${namespace}" wait --for=condition=complete \
+      job/observeweaver-elastic-bootstrap --timeout 15m
+  fi
+  if [[ "$(config_value components.kibana.enabled)" == "true" ]]; then
+    kubectl -n "${namespace}" rollout status deployment/observeweaver-kibana --timeout 15m
+  fi
+  if [[ "$(config_value components.logstash.enabled)" == "true" ]]; then
+    kubectl -n "${namespace}" rollout status statefulset/observeweaver-logstash --timeout 15m
+  fi
+fi
+
 if [[ "$(config_value components.redis.enabled)" == "true" ]]; then
   kubectl -n "${namespace}" apply \
     --filename "${GENERATED_VALUES_DIR}/redis.values.generated.yml"
   kubectl -n "${namespace}" rollout status statefulset/observeweaver-redis \
     --timeout 10m
+fi
+
+if [[ "$(config_value components.kafka.enabled)" == "true" ]]; then
+  kafka_manifest="${GENERATED_VALUES_DIR}/kafka-stack.values.generated.yml"
+  if [[ ! -r "${kafka_manifest}" ]]; then
+    printf 'ERROR: generated Kafka manifest is missing: %s\n' "${kafka_manifest}" >&2
+    exit 2
+  fi
+  kubectl -n "${namespace}" apply --filename "${kafka_manifest}"
+  kubectl -n "${namespace}" rollout status statefulset/observeweaver-kafka --timeout 20m
 fi
 
 if [[ "$(config_value components.graylog.enabled)" == "true" ]]; then

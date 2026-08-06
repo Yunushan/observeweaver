@@ -65,8 +65,65 @@
     - observeweaver.components.redis.enabled | bool
     - inventory_hostname in groups.get('redis', [])
 
+- name: Install Kafka in KRaft mode
+  ansible.builtin.include_tasks: kafka.yml
+  when:
+    - observeweaver.components.kafka.enabled | bool
+    - inventory_hostname in groups.get('kafka', [])
+
 - name: Install OpenSearch
   ansible.builtin.include_tasks: opensearch.yml
   when:
     - observeweaver.components.opensearch.enabled | bool
     - inventory_hostname in groups.get('opensearch', [])
+
+- name: Install Elasticsearch
+  ansible.builtin.include_tasks: elasticsearch.yml
+  vars:
+    observeweaver_elasticsearch_password: >-
+      {{ lookup('ansible.builtin.ini', 'ELASTICSEARCH_PASSWORD', type='properties',
+      file=observeweaver_secret_file) }}
+    observeweaver_kibana_system_password: >-
+      {{ lookup('ansible.builtin.ini', 'KIBANA_SYSTEM_PASSWORD', type='properties',
+      file=observeweaver_secret_file) }}
+    observeweaver_logstash_writer_password: >-
+      {{ lookup('ansible.builtin.ini', 'LOGSTASH_WRITER_PASSWORD', type='properties',
+      file=observeweaver_secret_file) }}
+  when:
+    - observeweaver.components.elasticsearch.enabled | bool
+    - inventory_hostname in groups.get('elasticsearch', [])
+
+- name: Install Kibana
+  ansible.builtin.include_tasks: kibana.yml
+  vars:
+    observeweaver_elasticsearch_password: >-
+      {{ lookup('ansible.builtin.ini', 'ELASTICSEARCH_PASSWORD', type='properties',
+      file=observeweaver_secret_file) }}
+    observeweaver_kibana_system_password: >-
+      {{ lookup('ansible.builtin.ini', 'KIBANA_SYSTEM_PASSWORD', type='properties',
+      file=observeweaver_secret_file) }}
+    observeweaver_kibana_encryption_key: >-
+      {{ lookup('ansible.builtin.ini', 'KIBANA_ENCRYPTION_KEY', type='properties',
+      file=observeweaver_secret_file) }}
+    observeweaver_kibana_reporting_key: >-
+      {{ lookup('ansible.builtin.ini', 'KIBANA_REPORTING_ENCRYPTION_KEY', type='properties',
+      file=observeweaver_secret_file) }}
+    observeweaver_kibana_security_key: >-
+      {{ lookup('ansible.builtin.ini', 'KIBANA_SECURITY_ENCRYPTION_KEY', type='properties',
+      file=observeweaver_secret_file) }}
+  when:
+    - observeweaver.components.kibana.enabled | bool
+    - inventory_hostname in groups.get('kibana', [])
+
+- name: Install Logstash
+  ansible.builtin.include_tasks: logstash.yml
+  vars:
+    observeweaver_elasticsearch_password: >-
+      {{ lookup('ansible.builtin.ini', 'ELASTICSEARCH_PASSWORD', type='properties',
+      file=observeweaver_secret_file) }}
+    observeweaver_logstash_writer_password: >-
+      {{ lookup('ansible.builtin.ini', 'LOGSTASH_WRITER_PASSWORD', type='properties',
+      file=observeweaver_secret_file) }}
+  when:
+    - observeweaver.components.logstash.enabled | bool
+    - inventory_hostname in groups.get('logstash', [])

@@ -1,0 +1,120 @@
+---
+- name: Install Java 17 runtime for Kafka on Debian family
+  ansible.builtin.package:
+    name: openjdk-17-jre-headless
+    state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Install Java 17 runtime for Kafka on Red Hat family
+  ansible.builtin.package:
+    name: java-17-openjdk-headless
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Define immutable Kafka installation paths
+  ansible.builtin.set_fact:
+    observeweaver_kafka_distribution: "{{ observeweaver.components.kafka.distribution | default('apache', true) }}"
+    observeweaver_kafka_version: "{{ observeweaver.components.kafka.version }}"
+    observeweaver_kafka_archive_name: >-
+      {{ 'confluent-community-' ~ observeweaver.components.kafka.version ~ '.tar.gz'
+         if (observeweaver.components.kafka.distribution | default('apache', true)) == 'confluent'
+         else 'kafka_2.13-' ~ observeweaver.components.kafka.version ~ '.tgz' }}
+    observeweaver_kafka_archive: "{{ observeweaver_cache_root }}/{{ observeweaver_kafka_archive_name }}"
+    observeweaver_kafka_install_dir: >-
+      {{ observeweaver_install_root }}/{{ 'confluent-' ~ observeweaver.components.kafka.version
+         if (observeweaver.components.kafka.distribution | default('apache', true)) == 'confluent'
+         else 'kafka_2.13-' ~ observeweaver.components.kafka.version }}
+    observeweaver_kafka_start_binary: >-
+      {{ 'kafka-server-start' if (observeweaver.components.kafka.distribution | default('apache', true)) == 'confluent'
+         else 'kafka-server-start.sh' }}
+    observeweaver_kafka_stop_binary: >-
+      {{ 'kafka-server-stop' if (observeweaver.components.kafka.distribution | default('apache', true)) == 'confluent'
+         else 'kafka-server-stop.sh' }}
+    observeweaver_kafka_storage_binary: >-
+      {{ 'kafka-storage' if (observeweaver.components.kafka.distribution | default('apache', true)) == 'confluent'
+         else 'kafka-storage.sh' }}
+    observeweaver_kafka_data_dir: "{{ observeweaver_data_root }}/kafka"
+    observeweaver_kafka_config_dir: "{{ observeweaver_config_root }}/kafka"
+    observeweaver_kafka_node_id: "{{ groups['kafka'].index(inventory_hostname) + 1 }}"
+    observeweaver_kafka_replication_factor: "{{ [groups['kafka'] | length, 3] | min }}"
+    observeweaver_kafka_min_isr: "{{ [[groups['kafka'] | length, 2] | min, 1] | max }}"
+
+- name: Download the pinned Kafka binary archive
+  ansible.builtin.get_url:
+    url: >-
+      {{ 'https://packages.confluent.io/archive/8.3/confluent-community-8.3.0.tar.gz'
+         if observeweaver_kafka_distribution == 'confluent'
+         else 'https://downloads.apache.org/kafka/4.3.1/kafka_2.13-4.3.1.tgz' }}
+    dest: "{{ observeweaver_kafka_archive }}"
+    checksum: >-
+      {{ 'sha256:cf083fd41bcbfb17336fd13d3aa7dfdee62afa04407d9e631e5d4ceb4180ca88'
+         if observeweaver_kafka_distribution == 'confluent'
+         else 'sha512:c7d7b2318cb51aa0c61d3246a51c349210073c5c9b754947ef965a439f2f939e8600f204e134a75ac31faf3829c9370960ef7c6a9886c8a1dbf0339a21f4c54d' }}
+    mode: '0644'
+
+- name: Extract the pinned Kafka binary archive
+  ansible.builtin.unarchive:
+    src: "{{ observeweaver_kafka_archive }}"
+    dest: "{{ observeweaver_install_root }}"
+    remote_src: true
+    creates: "{{ observeweaver_kafka_install_dir }}/bin/{{ observeweaver_kafka_start_binary }}"
+
+- name: Create the Kafka system user
+  ansible.builtin.user:
+    name: kafka
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ observeweaver_kafka_data_dir }}"
+    create_home: false
+
+- name: Create Kafka runtime directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: kafka
+    group: kafka
+    mode: '0750'
+  loop:
+    - "{{ observeweaver_kafka_data_dir }}"
+    - "{{ observeweaver_kafka_config_dir }}"
+
+- name: Render Kafka KRaft server properties
+  ansible.builtin.template:
+    src: kafka.properties.j2
+    dest: "{{ observeweaver_kafka_config_dir }}/server.properties"
+    owner: kafka
+    group: kafka
+    mode: '0600'
+  notify: Restart kafka
+
+- name: Format Kafka KRaft storage once
+  ansible.builtin.command:
+    argv:
+      - "{{ observeweaver_kafka_install_dir }}/bin/{{ observeweaver_kafka_storage_binary }}"
+      - format
+      - --ignore-formatted
+      - -t
+      - "{{ observeweaver.kafka_cluster_id }}"
+      - -c
+      - "{{ observeweaver_kafka_config_dir }}/server.properties"
+    creates: "{{ observeweaver_kafka_data_dir }}/meta.properties"
+  become: true
+  become_user: kafka
+
+- name: Install Kafka systemd service
+  ansible.builtin.template:
+    src: kafka.service.j2
+    dest: /etc/systemd/system/kafka.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart kafka
+
+- name: Enable Kafka server
+  ansible.builtin.systemd_service:
+    name: kafka
+    enabled: true
+    state: started
+    daemon_reload: true

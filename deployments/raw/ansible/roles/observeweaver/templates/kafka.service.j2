@@ -1,0 +1,22 @@
+[Unit]
+Description=ObserveWeaver Kafka ({{ observeweaver_kafka_distribution | capitalize }}, KRaft)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kafka
+Group=kafka
+ExecStart={{ observeweaver_kafka_install_dir }}/bin/{{ observeweaver_kafka_start_binary }} {{ observeweaver_kafka_config_dir }}/server.properties
+ExecStop={{ observeweaver_kafka_install_dir }}/bin/{{ observeweaver_kafka_stop_binary }}
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths={{ observeweaver_kafka_data_dir }} {{ observeweaver_kafka_config_dir }}
+
+[Install]
+WantedBy=multi-user.target

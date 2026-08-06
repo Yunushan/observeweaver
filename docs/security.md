@@ -3,8 +3,8 @@
 ## Before production
 
 - Replace example addresses and domains.
-- Put Grafana and Graylog behind authenticated TLS ingress.
-- Restrict Prometheus, Alertmanager, OpenSearch, MongoDB, Redis, and administrative
+- Put Grafana, Graylog, and Kibana behind authenticated TLS ingress.
+- Restrict Prometheus, Alertmanager, OpenSearch, Elasticsearch, MongoDB, Redis, Kafka, and administrative
   APIs to management/workload networks.
 - Use a managed internal CA for east-west TLS.
 - Replace the bootstrap OpenSearch user database with organization-managed
@@ -13,9 +13,18 @@
 - Encrypt the secret source with SOPS/age or use Vault/External Secrets.
 - Configure Grafana OIDC/SAML/LDAP and disable shared local admin use.
 - Configure Graylog roles, streams, index retention, and audit controls.
+- Configure Elastic roles, index lifecycle policies, Kibana Spaces, and Logstash
+  pipeline permissions. Raw, Kubernetes, and Docker standalone create the
+  managed `logstash_internal` writer; do not use the `elastic` superuser for
+  application writes. Docker cluster remains a trusted-host preview profile with
+  security disabled and must not be used on an untrusted network.
 - Define NetworkPolicies and firewall rules from explicit CIDRs.
 - Configure OpenSearch snapshots, MongoDB backups, Redis AOF/RDB backups, and
   restore tests.
+- Kafka's generated baseline uses private-network PLAINTEXT KRaft listeners for
+  compatibility across Apache and Confluent Community distributions. Firewall broker `9092` and controller `9095`
+  to the data-node quorum and approved clients; use Kafka's TLS/SASL listener
+  configuration before crossing a trust boundary.
 
 ## Current Compose boundary
 
@@ -37,6 +46,17 @@ Internet networks.
 
 For authenticated east-west OpenSearch traffic, use the raw Linux deployment
 with its generated per-node certificates or Graylog Data Node on K3s/RKE2.
+
+## Elastic Stack certificates
+
+Raw Linux Elastic deployments create a private CA on the first Elasticsearch
+member, issue per-node certificates with each configured DNS name/IP in the SAN,
+and configure Elasticsearch HTTP and transport TLS. Kibana and Logstash receive
+the CA before their services start. Generated Kubernetes manifests use a stable
+installer-created CA for authenticated internal HTTPS and transport TLS. Docker standalone
+uses authenticated internal HTTP, while Docker cluster keeps its host-network
+transport restricted to the data nodes; terminate public TLS at the reverse
+proxy or Kubernetes Ingress.
 
 Native Windows OpenSearch also disables the security plugin and is a restricted
 lab/agent path, not the full production log backend.
@@ -65,7 +85,13 @@ of every OpenSearch and Graylog member.
 - `docker inspect` can expose environment-based Compose secrets to Docker
   administrators. Docker administrators already have root-equivalent access;
   use Docker secrets or an external provider when that boundary is
-  insufficient.
+insufficient.
+
+Kafka is not published on the standalone backend network except for the
+configured broker management binding. The controller listener remains private;
+do not attach untrusted containers or expose either listener directly to the
+Internet.
+
 - Helm chart-managed secrets are stored in Kubernetes/Helm release state.
   Encrypt etcd and restrict RBAC.
 - Rotate Graylog's administrator password without deleting its password pepper.

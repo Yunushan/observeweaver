@@ -17,7 +17,9 @@ ObserveWeaver installs and configures:
   and K3s/RKE2)
 - Graylog Open
 - OpenSearch
+- Elasticsearch, Kibana, and Logstash (the pinned Elastic Stack)
 - Redis Community Edition (optional cache, queue, and ephemeral state service)
+- Apache Kafka or Confluent Community Kafka (optional KRaft event-streaming service)
 
 It also manages the dependencies the requested stack cannot work without:
 MongoDB for Graylog, Redis for optional application state, and an external
@@ -78,8 +80,10 @@ matrix](docs/support-matrix.md).
 | Zabbix Server | 7.0.28 LTS | Raw Linux, Docker, and K3s/RKE2; clustered HA requires external PostgreSQL |
 | Graylog | 7.1.6 | No rolling upgrade |
 | OpenSearch for Graylog | 2.19.5 | 2.19.6 and 3.x are rejected |
+| Elasticsearch / Kibana / Logstash | 9.4.2 | All three must use the same version; Elasticsearch is the durable backend |
 | MongoDB | 8.0.28 | Required Graylog dependency |
 | Redis Community Edition | 8.8.0 | Password-protected, AOF persistence; three-member Sentinel profile in cluster mode |
+| Kafka | Apache 4.3.1 (default) or Confluent Community 8.3.0 | KRaft-only; one combined node standalone or an odd 3+ controller quorum |
 
 The machine-readable locks are in [`versions/`](versions/). Graylog's current
 [compatibility matrix](https://go2docs.graylog.org/current/downloading_and_installing_graylog/compatibility_matrix.htm)
@@ -88,7 +92,7 @@ is the governing constraint, not the latest OpenSearch release.
 ## Quick start: Docker on one Linux host
 
 Requirements: Python 3.10+, Docker Engine, and Docker Compose v2.
-OpenSearch also requires `vm.max_map_count=262144`.
+OpenSearch and Elasticsearch require `vm.max_map_count=262144`.
 
 ```bash
 git clone https://github.com/Yunushan/observeweaver.git
@@ -108,9 +112,10 @@ CONFIG_FILE=config/production.yml scripts/observeweaver.sh verify
 ```
 
 The example binds admin ports to a configurable address. Put Grafana, Graylog,
-and Zabbix behind a TLS reverse proxy; never expose MongoDB, OpenSearch, or
-Redis directly. The Compose backend network is internal and those database
-ports are not published. Raw/Docker `tls.mode: provided` records the full-chain
+Kibana, and Zabbix behind a TLS reverse proxy; never expose MongoDB, OpenSearch,
+Elasticsearch, or Redis directly. The Compose backend network keeps the log
+backends internal; Elasticsearch is published only on the configured management
+address for authenticated health checks. Raw/Docker `tls.mode: provided` records the full-chain
 certificate and private-key paths consumed by that external proxy. On K3s/RKE2,
 the installer imports those files into a Kubernetes TLS Secret without writing
 the key into generated files or containers.
@@ -140,7 +145,9 @@ NAMESPACE=observeweaver deployments/kubernetes/verify.sh
 
 On Kubernetes, the official Graylog chart deploys Graylog Data Node, which
 manages the OpenSearch backend. This is safer than independently upgrading an
-external OpenSearch chart.
+external OpenSearch chart. The optional Elastic Stack is rendered as locked-image
+Elasticsearch StatefulSet plus Kibana and Logstash workloads; Kibana uses the
+same public TLS Secret and Logstash receives Beats traffic on `logstashBeats`.
 
 ## Configuration contract
 
@@ -162,7 +169,12 @@ network:
   ports:
     grafana: 3000
     graylogHttp: 9000
+    elasticsearch: 9201
+    kibana: 5601
+    logstashBeats: 5045
     redis: 6379
+    kafka: 9092
+    kafkaController: 9095
     otlpGrpc: 4317
 
 tls:
@@ -178,15 +190,29 @@ components:
   opensearch:
     version: "2.19.5"
     replicas: 3
+  elasticsearch:
+    version: "9.4.2"
+    replicas: 3
+  kibana:
+    version: "9.4.2"
+    replicas: 2
+  logstash:
+    version: "9.4.2"
+    replicas: 2
   redis:
     version: "8.8.0"
     replicas: 3       # Sentinel HA profile in cluster mode
+  kafka:
+    distribution: apache # apache or confluent (Confluent Community 8.3.0)
+    version: "4.3.1"
+    replicas: 3       # KRaft controller/broker quorum in cluster mode
 ```
 
 The JSON Schema provides editor completion. Semantic validation additionally
 rejects bad quorum, incompatible versions, native Windows Graylog, K3s/RKE2
 Windows servers, unpinned tags, insecure production TLS, missing Grafana HA
-database configuration, and unsuitable cluster storage settings.
+database configuration, mismatched Elastic Stack versions, and unsuitable cluster
+storage settings.
 
 See [configuration reference](docs/configuration.md).
 
@@ -215,6 +241,9 @@ flowchart LR
     Prom --> Grafana["Grafana"]
     Sources["GELF / Syslog / inputs"] --> Graylog["Graylog"]
     Graylog --> Search["Data Node / OpenSearch"]
+    Sources -->|Beats 5045| Logstash["Logstash"]
+    Logstash --> Elastic["Elasticsearch"]
+    Elastic --> Kibana["Kibana"]
     Graylog --> Mongo["MongoDB metadata"]
     Apps --> Redis["Optional Redis cache / queue"]
 ```

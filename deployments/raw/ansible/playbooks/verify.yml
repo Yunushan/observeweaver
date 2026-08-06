@@ -35,6 +35,16 @@
         enabled: "{{ observeweaver.components.zabbix.enabled }}"
         port: "{{ observeweaver.network.ports.zabbixWeb }}"
         path: /
+      - name: kibana
+        group: kibana
+        enabled: "{{ observeweaver.components.kibana.enabled }}"
+        port: "{{ observeweaver.network.ports.kibana }}"
+        path: /api/status
+      - name: logstash
+        group: logstash
+        enabled: "{{ observeweaver.components.logstash.enabled }}"
+        port: "{{ observeweaver.network.ports.logstashApi }}"
+        path: /
   tasks:
     - name: Check installed systemd services
       ansible.builtin.command:
@@ -110,6 +120,42 @@
       changed_when: false
       when: inventory_hostname in groups.get('opensearch', [])
 
+    - name: Check Elasticsearch service
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - elasticsearch
+      register: elasticsearch_service_status
+      changed_when: false
+      when:
+        - observeweaver.components.elasticsearch.enabled | bool
+        - inventory_hostname in groups.get('elasticsearch', [])
+
+    - name: Check Elasticsearch HTTPS readiness
+      ansible.builtin.uri:
+        url: >-
+          https://{{ '[' ~ hostvars[inventory_hostname].ansible_host ~ ']'
+          if ':' in hostvars[inventory_hostname].ansible_host
+          else hostvars[inventory_hostname].ansible_host }}:{{
+          observeweaver.network.ports.elasticsearch }}/_cluster/health
+        url_username: elastic
+        url_password: >-
+          {{ lookup('ansible.builtin.ini', 'ELASTICSEARCH_PASSWORD',
+          type='properties', file=observeweaver_secret_file) }}
+        force_basic_auth: true
+        ca_path: /etc/elasticsearch/observeweaver-root-ca.pem
+        validate_certs: true
+        status_code: 200
+      register: elasticsearch_readiness
+      retries: 12
+      delay: 5
+      until: elasticsearch_readiness.status == 200
+      no_log: true
+      when:
+        - observeweaver.components.elasticsearch.enabled | bool
+        - inventory_hostname in groups.get('elasticsearch', [])
+
     - name: Check Redis service
       ansible.builtin.command:
         argv: [systemctl, is-active, redis]
@@ -150,6 +196,35 @@
         - observeweaver.components.redis.enabled | bool
         - observeweaver.deployment.mode == 'cluster'
         - inventory_hostname in groups.get('redis', [])
+
+    - name: Check Kafka service
+      ansible.builtin.command:
+        argv: [systemctl, is-active, kafka]
+      register: kafka_service_status
+      changed_when: false
+      when:
+        - observeweaver.components.kafka.enabled | bool
+        - inventory_hostname in groups.get('kafka', [])
+
+    - name: Check Kafka broker listener
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ observeweaver.network.ports.kafka }}"
+        state: started
+        timeout: 90
+      when:
+        - observeweaver.components.kafka.enabled | bool
+        - inventory_hostname in groups.get('kafka', [])
+
+    - name: Check Kafka controller listener
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ observeweaver.network.ports.kafkaController }}"
+        state: started
+        timeout: 90
+      when:
+        - observeweaver.components.kafka.enabled | bool
+        - inventory_hostname in groups.get('kafka', [])
 
     - name: Check Zabbix Server service
       ansible.builtin.command:

@@ -48,9 +48,29 @@
     name: redis-sentinel
     state: restarted
 
+- name: Restart kafka
+  ansible.builtin.systemd_service:
+    name: kafka
+    state: restarted
+
 - name: Restart opensearch
   ansible.builtin.systemd_service:
     name: opensearch
+    state: restarted
+
+- name: Restart elasticsearch
+  ansible.builtin.systemd_service:
+    name: elasticsearch
+    state: restarted
+
+- name: Restart kibana
+  ansible.builtin.systemd_service:
+    name: kibana
+    state: restarted
+
+- name: Restart logstash
+  ansible.builtin.systemd_service:
+    name: logstash
     state: restarted
 
 - name: Restart graylog

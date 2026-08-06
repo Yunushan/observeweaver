@@ -8,7 +8,7 @@ stateful stack is scheduled to Linux nodes.
 ## Requirements
 
 - Existing K3s or RKE2 cluster with Kubernetes 1.32 or newer.
-- `kubectl`, Helm, `curl`, Python 3, and `sha256sum`.
+- `kubectl`, Helm, `curl`, `openssl`, Python 3, and `sha256sum`.
 - A default or explicitly configured persistent `StorageClass`.
 - For cluster mode, replicated block storage with tested node-failure
   recovery. K3s `local-path` is suitable only for a lab.
@@ -18,7 +18,7 @@ stateful stack is scheduled to Linux nodes.
 
 ## Public TLS
 
-Grafana, Graylog, and Zabbix use the single TLS Secret named by
+Grafana, Graylog, Kibana, and Zabbix use the single TLS Secret named by
 `tls.secretName`. With `tls.mode: cert-manager`, the installer applies the
 generated `Certificate` and waits for it to become ready before installing the
 charts. The referenced existing `ClusterIssuer` owns ACME configuration and
@@ -40,7 +40,19 @@ digests. It installs:
 - Zabbix chart 7.1.0, configured to use Zabbix 7.0.28 LTS and PostgreSQL;
 - Graylog chart 1.0.0 with Graylog/Data Node 7.1.6;
 - the Graylog-documented MongoDB Kubernetes operator 1.6.1.
-- a password-protected Redis StatefulSet using the immutable official Redis image.
+- a password-protected Redis StatefulSet using the immutable official Redis image;
+- a locked Kafka KRaft StatefulSet with headless broker/controller
+  discovery, per-replica PVCs, probes, and a private NetworkPolicy.
+
+When enabled, the Elastic Stack is rendered separately as locked official
+9.4.2 images: an Elasticsearch StatefulSet, a Kibana Deployment/Ingress, and a
+Logstash StatefulSet with per-replica data PVCs plus Beats and API Services. The installer creates a stable
+internal CA Secret for Elasticsearch HTTPS and transport TLS before applying
+the manifest. A locked-image bootstrap Job creates the `kibana_system` password
+and least-privilege `logstash_internal` writer from the Kubernetes Secret before
+the dependent workloads are considered ready. Cluster mode requires
+an odd Elasticsearch quorum of at least three members and a persistent
+StorageClass.
 
 Graylog Data Node manages the OpenSearch backend on Kubernetes. This is the
 preferred Graylog architecture and prevents an accidental upgrade to
@@ -81,6 +93,15 @@ Redis pod. Cluster mode renders a three-member primary/replica StatefulSet and
 one Sentinel sidecar per member; use `observeweaver-redis-sentinel:26379` for
 primary discovery. The installer applies the generated Redis manifest after
 the secret exists and waits for the StatefulSet rollout.
+
+Kafka is rendered separately from the Helm charts as
+`kafka-stack.values.generated.yml`. It uses the immutable Apache 4.3.1 image by
+default, or the immutable Confluent Community 8.3.0 `cp-kafka` image when
+`components.kafka.distribution: confluent` is selected. Both use one combined
+broker/controller pod in standalone mode or an odd 3+ StatefulSet quorum in
+cluster mode, and the `kafka`/`kafkaController` ports. The generated controller
+voters use stable StatefulSet DNS names; use a replicated StorageClass for
+cluster mode and do not expose the controller port to clients.
 
 ## Deploy
 

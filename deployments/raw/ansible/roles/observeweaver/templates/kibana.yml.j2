@@ -1,0 +1,16 @@
+server.name: {{ inventory_hostname }}
+server.host: "0.0.0.0"
+server.port: {{ observeweaver.network.ports.kibana }}
+server.publicBaseUrl: {{ 'http' if observeweaver.tls.mode == 'disabled' else 'https' }}://kibana.{{ observeweaver.network.domain }}/
+elasticsearch.hosts:
+{% for host in groups.get('elasticsearch', []) %}
+  - https://{{ hostvars[host].ansible_host }}:{{ observeweaver.network.ports.elasticsearch }}
+{% endfor %}
+elasticsearch.username: kibana_system
+elasticsearch.password: {{ observeweaver_kibana_system_password }}
+elasticsearch.ssl.certificateAuthorities: [ "/etc/kibana/observeweaver-root-ca.pem" ]
+elasticsearch.ssl.verificationMode: full
+xpack.security.encryptionKey: {{ observeweaver_kibana_security_key }}
+xpack.encryptedSavedObjects.encryptionKey: {{ observeweaver_kibana_encryption_key }}
+xpack.reporting.encryptionKey: {{ observeweaver_kibana_reporting_key }}
+telemetry.optIn: false

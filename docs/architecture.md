@@ -15,8 +15,12 @@ only at deployment time.
 | OTel Collector | Receive/process/export telemetry | Normally stateless |
 | Graylog | Log ingestion, processing, search UI | Journal plus MongoDB metadata |
 | OpenSearch/Data Node | Graylog search indices | Dedicated volume per member |
+| Elasticsearch | Elastic Stack log indices and queries | Stateful data volume per member |
+| Kibana | Elastic Stack search and dashboards UI | Stateless workload; saved objects live in Elasticsearch |
+| Logstash | Beats ingestion and pipeline processing | Persistent queue/data volume when enabled |
 | MongoDB | Graylog configuration/metadata | Replica-set volume per member |
 | Redis | Optional application cache, queue, and ephemeral state | AOF/RDB volume per member |
+| Kafka | KRaft event streaming and durable consumer topics | Broker log volume per member |
 
 ## Data paths
 
@@ -28,8 +32,16 @@ only at deployment time.
 - Graylog journals incoming messages and stores searchable indices in
   OpenSearch or Graylog Data Node.
 - MongoDB stores Graylog metadata, not the log messages themselves.
+- Beats or other Logstash inputs are normalized by Logstash and indexed in
+  Elasticsearch; Kibana queries those indices. This path is independent of
+  Graylog/OpenSearch, so both search backends can be enabled without sharing
+  ports or credentials.
 - Redis is not coupled to Graylog; applications opt in through their own Redis
   client configuration.
+- Kafka is an independent event-streaming plane. Standalone mode runs one
+  combined broker/controller; cluster mode runs an odd 3+ KRaft quorum with
+  per-member durable logs. Apache Kafka 4.3.1 is the default and Confluent
+  Community 8.3.0 is an interchangeable distribution; ZooKeeper is not deployed.
 - Traces are not durable until an external trace exporter/backend is configured.
 
 ## HA semantics
@@ -47,11 +59,17 @@ Replicas do not mean the same thing across the stack:
   cluster.
 - OpenSearch needs an odd quorum of cluster-manager-eligible nodes and at least
   one index replica to survive one data-node loss.
+- Elasticsearch cluster mode requires an odd quorum of at least three members;
+  Kibana and Logstash are deployed only after the Elasticsearch API is ready.
 - MongoDB should use three data-bearing members without an arbiter for
   production.
 - Redis uses one password-protected primary in standalone mode. Cluster mode
   uses one primary, two replicas, and three Sentinels; applications must use
   Sentinel discovery rather than a hard-coded primary address.
+- Kafka cluster mode requires controller and broker listeners on every data
+  node, replication factor three, and a replicated persistent volume class for
+  durable topic data. The generated baseline listeners are private-network
+  plaintext and must be protected by firewall policy or replaced with TLS/SASL.
 
 ## Deployment engines
 

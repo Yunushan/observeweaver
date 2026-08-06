@@ -248,6 +248,55 @@ services:
       - no-new-privileges:true
     logging: *default-logging
 
+  kafka:
+    image: ${KAFKA_IMAGE:?KAFKA_IMAGE is required}
+    hostname: kafka
+    profiles: [kafka]
+    <<: *default-restart
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:?KAFKA_CLUSTER_ID is required}
+      KAFKA_NODE_ID: 1
+      KAFKA_PORT: ${KAFKA_PORT:-9092}
+      KAFKA_CONTROLLER_PORT: ${KAFKA_CONTROLLER_PORT:-9095}
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://:${KAFKA_PORT:-9092},CONTROLLER://:${KAFKA_CONTROLLER_PORT:-9095}
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:${KAFKA_PORT:-9092}
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:${KAFKA_CONTROLLER_PORT:-9095}
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${KAFKA_PORT:-9092}:${KAFKA_PORT:-9092}"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - backend
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          if command -v kafka-broker-api-versions >/dev/null 2>&1; then
+          kafka-broker-api-versions --bootstrap-server 127.0.0.1:${KAFKA_PORT:-9092};
+          elif command -v kafka-broker-api-versions.sh >/dev/null 2>&1; then
+          kafka-broker-api-versions.sh --bootstrap-server 127.0.0.1:${KAFKA_PORT:-9092};
+          elif [ -x /opt/kafka/bin/kafka-broker-api-versions.sh ]; then
+          /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server
+          127.0.0.1:${KAFKA_PORT:-9092}; else exit 1; fi >/dev/null 2>&1
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
   mongodb:
     image: ${MONGODB_IMAGE:?MONGODB_IMAGE is required}
     profiles: [mongodb]
@@ -310,6 +359,167 @@ services:
       timeout: 10s
       retries: 30
       start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  elasticsearch:
+    image: ${ELASTICSEARCH_IMAGE:?ELASTICSEARCH_IMAGE is required}
+    profiles: [elasticsearch]
+    <<: *default-restart
+    environment:
+      cluster.name: observeweaver-elastic
+      node.name: elasticsearch-standalone
+      discovery.type: single-node
+      http.port: ${ELASTICSEARCH_PORT:-9201}
+      transport.port: ${ELASTICSEARCH_TRANSPORT_PORT:-9301}
+      bootstrap.memory_lock: "true"
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      ELASTIC_PASSWORD: ${ELASTICSEARCH_PASSWORD:?ELASTICSEARCH_PASSWORD is required}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${ELASTICSEARCH_PORT:-9201}:${ELASTICSEARCH_PORT:-9201}"
+    networks:
+      - backend
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent -u elastic:$${ELASTIC_PASSWORD} http://127.0.0.1:${ELASTICSEARCH_PORT:-9201}/_cluster/health?wait_for_status=yellow >/dev/null || exit 1",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  elastic-bootstrap:
+    image: ${ELASTICSEARCH_IMAGE:?ELASTICSEARCH_IMAGE is required}
+    profiles: [elasticsearch]
+    restart: "no"
+    environment:
+      ELASTIC_PASSWORD: ${ELASTICSEARCH_PASSWORD:?ELASTICSEARCH_PASSWORD is required}
+      ELASTICSEARCH_PORT: ${ELASTICSEARCH_PORT:-9201}
+      KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-}
+      LOGSTASH_WRITER_PASSWORD: ${LOGSTASH_WRITER_PASSWORD:-}
+      KIBANA_ENABLED: ${KIBANA_ENABLED:-false}
+      LOGSTASH_ENABLED: ${LOGSTASH_ENABLED:-false}
+    command:
+      - bash
+      - -ec
+      - |
+        until curl --fail --silent --show-error \
+          --user "elastic:$${ELASTIC_PASSWORD}" \
+          "http://elasticsearch:$${ELASTICSEARCH_PORT:-9201}/_cluster/health?wait_for_status=yellow" \
+          >/dev/null; do sleep 5; done
+        if [ "$${KIBANA_ENABLED}" = "true" ]; then
+          curl --fail --silent --show-error \
+            --user "elastic:$${ELASTIC_PASSWORD}" \
+            --header 'Content-Type: application/json' --request POST \
+            "http://elasticsearch:$${ELASTICSEARCH_PORT:-9201}/_security/user/kibana_system/_password" \
+            --data "{\"password\":\"$${KIBANA_SYSTEM_PASSWORD}\"}" >/dev/null
+        fi
+        if [ "$${LOGSTASH_ENABLED}" = "true" ]; then
+          curl --fail --silent --show-error \
+            --user "elastic:$${ELASTIC_PASSWORD}" \
+            --header 'Content-Type: application/json' --request PUT \
+            "http://elasticsearch:$${ELASTICSEARCH_PORT:-9201}/_security/role/logstash_writer" \
+            --data '{"cluster":["manage_index_templates","monitor","manage_ilm"],"indices":[{"names":["observeweaver-logs-*"],"privileges":["write","create","delete","create_index","manage","manage_ilm"]}]}' >/dev/null
+          curl --fail --silent --show-error \
+            --user "elastic:$${ELASTIC_PASSWORD}" \
+            --header 'Content-Type: application/json' --request PUT \
+            "http://elasticsearch:$${ELASTICSEARCH_PORT:-9201}/_security/user/logstash_internal" \
+            --data "{\"password\":\"$${LOGSTASH_WRITER_PASSWORD}\",\"roles\":[\"logstash_writer\"],\"full_name\":\"ObserveWeaver Logstash writer\"}" >/dev/null
+        fi
+    networks:
+      - backend
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  kibana:
+    image: ${KIBANA_IMAGE:?KIBANA_IMAGE is required}
+    profiles: [kibana]
+    <<: *default-restart
+    environment:
+      SERVER_NAME: kibana
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: ${KIBANA_PORT:-5601}
+      SERVER_PUBLICBASEURL: ${OBSERVEWEAVER_SCHEME:-https}://kibana.${OBSERVEWEAVER_DOMAIN:?OBSERVEWEAVER_DOMAIN is required}/
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:${ELASTICSEARCH_PORT:-9201}"]'
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:?KIBANA_SYSTEM_PASSWORD is required}
+      XPACK_SECURITY_ENCRYPTIONKEY: ${KIBANA_SECURITY_ENCRYPTION_KEY:?KIBANA_SECURITY_ENCRYPTION_KEY is required}
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:?KIBANA_ENCRYPTION_KEY is required}
+      XPACK_REPORTING_ENCRYPTIONKEY: ${KIBANA_REPORTING_ENCRYPTION_KEY:?KIBANA_REPORTING_ENCRYPTION_KEY is required}
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${KIBANA_PORT:-5601}:${KIBANA_PORT:-5601}"
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      elastic-bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:${KIBANA_PORT:-5601}/api/status >/dev/null || exit 1",
+        ]
+      interval: 20s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+
+  logstash:
+    image: ${LOGSTASH_IMAGE:?LOGSTASH_IMAGE is required}
+    profiles: [logstash]
+    <<: *default-restart
+    environment:
+      LS_JAVA_OPTS: ${LOGSTASH_JAVA_OPTS:--Xms1g -Xmx1g}
+      QUEUE_TYPE: persisted
+      ELASTICSEARCH_HOSTS: http://elasticsearch:${ELASTICSEARCH_PORT:-9201}
+      ELASTICSEARCH_USERNAME: logstash_internal
+      LOGSTASH_WRITER_PASSWORD: ${LOGSTASH_WRITER_PASSWORD:?LOGSTASH_WRITER_PASSWORD is required}
+    volumes:
+      - "${DOCKER_CONFIG_DIR:?DOCKER_CONFIG_DIR is required}/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro"
+      - logstash-data:/usr/share/logstash/data
+    ports:
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${LOGSTASH_BEATS_PORT:-5045}:${LOGSTASH_BEATS_PORT:-5045}"
+      - "${OBSERVEWEAVER_ENDPOINT_ADDRESS:-127.0.0.1}:${LOGSTASH_API_PORT:-9600}:${LOGSTASH_API_PORT:-9600}"
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      elastic-bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent http://127.0.0.1:${LOGSTASH_API_PORT:-9600}/?pretty >/dev/null || exit 1",
+        ]
+      interval: 20s
+      timeout: 10s
+      retries: 30
+      start_period: 90s
     security_opt:
       - no-new-privileges:true
     logging: *default-logging
@@ -396,7 +606,10 @@ volumes:
   grafana-data:
   mongodb-data:
   opensearch-data:
+  elasticsearch-data:
+  logstash-data:
   graylog-journal:
   postgresql-data:
   zabbix-postgresql-data:
   redis-data:
+  kafka-data:

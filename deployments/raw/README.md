@@ -56,11 +56,27 @@ CONFIG_FILE=config/examples/raw-cluster.yml scripts/observeweaver.sh deploy --ye
 - Back up `/etc/opensearch/observeweaver-ca` from the first OpenSearch member.
   The installer issues per-node SAN certificates and makes Graylog trust that
   CA; replace it with a managed corporate CA only through a planned rotation.
+- Elasticsearch, Kibana, and Logstash are installed from the signed Elastic 9.x
+  repositories at the locked 9.4.2 version. The first Elasticsearch member owns
+  `/etc/elasticsearch/observeweaver-ca`; per-node certificates secure both HTTP
+  and transport traffic, while Kibana and Logstash trust the generated CA.
+- Keep `ELASTICSEARCH_PASSWORD`, `KIBANA_SYSTEM_PASSWORD`, the three Kibana
+  encryption keys, and `LOGSTASH_WRITER_PASSWORD` in the protected secret file.
+  Elasticsearch is assigned to `data`, Logstash to `logs`, and Kibana to
+  `ingress` nodes.
 - Configure UDP load balancing separately from HTTP/TCP.
 - Redis is built from the checksum-verified Redis 8.8.0 source archive and is
   bound to loopback plus its configured data-node address. In cluster mode,
   set firewall rules for Redis `6379` and Sentinel `26379` only between Redis
   data nodes and approved workloads; clients must use Sentinel discovery.
+- Kafka is installed from a checksum-verified archive and runs as a systemd-managed
+  KRaft broker/controller. Apache Kafka 4.3.1 is the default; selecting
+  `components.kafka.distribution: confluent` with version `8.3.0` installs the
+  Confluent Community archive and uses the same Kafka-compatible properties.
+  Standalone uses one node; cluster mode uses an odd 3+ controller quorum and
+  durable per-node logs. The generated listeners are private-network plaintext
+  on `kafka`/`kafkaController`; restrict those ports and add TLS/SASL before
+  exposing clients. Commercial Confluent Server is not installed.
 - Create Graylog GELF/Beats/Syslog inputs in the UI using the reserved ports
   from the canonical config; opening a service port does not create an input.
 
