@@ -3,4 +3,4 @@ pytest>=9.1.1,<10
 pytest-cov>=7.1.0,<8
 ruff>=0.16.0,<1
 yamllint>=1.38.0,<2
-pyright>=1.1.400,<2
+pyright>=1.1.414,<2
